@@ -198,7 +198,7 @@ def main():
         print(f"[Nova] Loading speech model from '{model_path}'... (this can take a few seconds)")
         listener = SpeechListener(model_path)
 
-    voice = Voice()
+    voice = Voice(enabled=config.get("tts_enabled", False))
     brain = Brain(config)
 
     should_quit = threading.Event()

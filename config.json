@@ -8,6 +8,9 @@
   "_comment_voice_enabled": "If false, Nova skips loading Vosk/the microphone entirely and instead takes typed commands in the transcript window. Set to true once you're ready to test wake-word listening again.",
   "voice_enabled": false,
 
+  "_comment_tts_enabled": "If false, Nova stays silent and just prints/logs replies instead of speaking them aloud. Set to true to hear Nova talk again.",
+  "tts_enabled": false,
+
   "_comment_use_ai_brain": "If true (default) and the ANTHROPIC_API_KEY environment variable is set, commands go to Claude Haiku 4.5 for interpretation before falling back to offline pattern matching. Set to false to force offline-only mode even with a key set.",
   "use_ai_brain": true,
 

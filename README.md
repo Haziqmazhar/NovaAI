@@ -47,6 +47,10 @@ which is useful while iterating on the agent/display without touching
 audio. You can skip this step and step 4's model folder entirely until
 you set `"voice_enabled": true`.
 
+It also ships with `"tts_enabled": false`, so Nova stays quiet and just
+prints/logs its replies instead of speaking them aloud — set it to `true`
+whenever you want to hear it again.
+
 Nova needs a Vosk speech model to understand you. Download the small English
 model (about 40MB) from:
 
