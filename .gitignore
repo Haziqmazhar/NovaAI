@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+
+# Downloaded separately per README — large binary model files, not source.
+model/
+
+# Never commit secrets.
+.env
+*.key

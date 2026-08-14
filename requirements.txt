@@ -1,0 +1,14 @@
+# Core speech recognition (offline, no API key, no internet needed)
+vosk==0.3.45
+sounddevice==0.4.6
+
+# Text-to-speech (offline, uses Windows' built-in voices)
+pyttsx3==2.90
+
+# System tray status icon
+pystray==0.19.5
+Pillow>=11.0
+
+# Optional Claude-powered reasoning layer (falls back to offline pattern
+# matching if ANTHROPIC_API_KEY isn't set)
+anthropic>=0.40.0
