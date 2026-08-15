@@ -199,7 +199,6 @@ def main():
         listener = SpeechListener(model_path)
 
     voice = Voice(enabled=config.get("tts_enabled", False))
-    brain = Brain(config)
 
     should_quit = threading.Event()
     window = TranscriptWindow(
@@ -207,6 +206,7 @@ def main():
         on_quit=should_quit.set,
         text_input=not voice_enabled,
     )
+    brain = Brain(config, on_progress=window.log_line)
 
     tray = StatusTray(on_quit=lambda: (should_quit.set(), window.request_quit()))
     tray.run_in_background()

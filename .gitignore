@@ -2,6 +2,9 @@ venv/
 __pycache__/
 *.pyc
 
+# Local Claude Code tooling config, not project source.
+.claude/
+
 # Downloaded separately per README — large binary model files, not source.
 model/
 

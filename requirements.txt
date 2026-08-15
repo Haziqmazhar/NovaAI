@@ -12,3 +12,6 @@ Pillow>=11.0
 # Optional Claude-powered reasoning layer (falls back to offline pattern
 # matching if ANTHROPIC_API_KEY isn't set)
 anthropic>=0.40.0
+
+# PDF text extraction for the document sub-agent (read_document tool)
+pypdf>=5.0.0
