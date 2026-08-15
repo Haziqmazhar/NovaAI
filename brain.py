@@ -92,9 +92,9 @@ TOOLS = [OPEN_ITEM_TOOL, READ_DOCUMENT_TOOL]
 # transcript_window.py) should draw. main.py passes this to
 # TranscriptWindow so the window never needs to import brain.py.
 AGENTS = [
-    ("brain", "Brain"),
-    ("app_agent", "App Agent"),
-    ("document_agent", "Document Agent"),
+    ("brain", "Nova"),
+    ("app_agent", "Appy"),
+    ("document_agent", "Duc"),
 ]
 
 

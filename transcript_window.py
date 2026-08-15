@@ -46,7 +46,7 @@ class TranscriptWindow:
             js_api=_Api(self._input_queue),
             width=1200,
             height=720,
-            min_size=(1000, 600),
+            min_size=(940, 600),
             background_color="#14161c",
         )
         self._window.events.closed += self._handle_close

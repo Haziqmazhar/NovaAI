@@ -11,8 +11,9 @@
     --title-fg: #8f97ab;
     --primary-fg: #e6e8ee;
     --muted-fg: #7d8394;
-    --accent: #8a2be2;
-    --accent-hover: #7222c9;
+    --accent: #b46bff;        /* == Brain's role color: one purple, one source of truth */
+    --accent-hover: #9a3fe0;
+    --accent-glow: rgba(180,107,255,0.28);
     --entry-bg: #262a35;
     --state-idle: #9aa0ad;
     --state-listening: #4aa3ff;
@@ -22,11 +23,12 @@
   * { box-sizing: border-box; }
   html, body {
     margin: 0; height: 100%; background: var(--root-bg); color: var(--primary-fg);
-    font-family: "Segoe UI", sans-serif; overflow: hidden; user-select: none;
+    font-family: "Consolas", "Cascadia Mono", "Lucida Console", "Courier New", monospace;
+    overflow: hidden; user-select: none;
   }
 
-  /* ---- 20 : 70 : 10 shell ---- */
-  .app-shell { display: grid; grid-template-columns: 20% 70% 10%; height: 100vh; }
+  /* ---- 20 : 60 : 20 shell ---- */
+  .app-shell { display: grid; grid-template-columns: 20% 60% 20%; height: 100vh; }
 
   /* left: page chooser */
   .sidebar-left {
@@ -39,20 +41,25 @@
     padding: 10px 12px; font-size: 13px; border-radius: 8px; margin-bottom: 4px;
     color: var(--muted-fg); border-left: 3px solid transparent; cursor: default;
   }
-  .nav-item.active { background: #262b38; color: var(--primary-fg); border-left-color: var(--accent); font-weight: 600; }
+  .nav-item.active {
+    background: #262b38; color: var(--primary-fg); border-left-color: var(--accent);
+    font-weight: 600; box-shadow: 0 0 14px 1px var(--accent-glow);
+  }
   .nav-item.disabled { opacity: 0.4; }
   .nav-item.disabled .soon { font-size: 9px; margin-left: 6px; }
 
-  /* center: workspace stage + chat */
+  /* center: workspace stage (80%) + chat (20%), proportional so it holds
+     the ratio across window resizes */
   .workspace-center { position: relative; display: flex; flex-direction: column; padding: 18px 22px; min-width: 0; }
 
-  /* tree arrangement: Brain centered on top, two rooms centered below it,
-     boxes sized to their content instead of stretching edge to edge */
   .stage {
-    flex: 0 0 auto; height: 300px; position: relative;
+    flex: 8 1 0; min-height: 0; position: relative;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px;
+    border-radius: 20px;
+    background: radial-gradient(circle at 50% 42%, rgba(180,107,255,0.07) 0%, transparent 62%);
   }
-  .connector-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+  .grid-backdrop, .connector-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+  .grid-ring { fill: none; stroke: #3a4152; stroke-dasharray: 2 10; opacity: 0.35; }
   .connector-layer line { stroke: #3a4152; stroke-width: 2; stroke-dasharray: 4 4; }
 
   .room {
@@ -60,12 +67,11 @@
     background: rgba(255,255,255,0.015);
     transition: border-color 0.4s ease, box-shadow 0.4s ease;
   }
-  .room-brain { width: 190px; height: 84px; flex: none; }
+  .room-block { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .room-brain, .room-app, .room-doc { width: 180px; height: 144px; flex: none; } /* height = 80% of width, same for every room */
   .room-row { display: flex; gap: 22px; justify-content: center; }
-  .room-app, .room-doc { width: 160px; height: 118px; flex: none; }
   .room-label {
-    position: absolute; top: 8px; left: 12px; font-size: 10px; font-weight: 700;
-    letter-spacing: 0.5px; text-transform: uppercase;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
   }
 
   /* robots: real inline SVG, positioned + scaled via CSS transform (not
@@ -74,15 +80,14 @@
   #robot-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
   .robot { position: absolute; will-change: transform; }
   .robot svg { display: block; overflow: visible; }
-  .robot-name { text-align: center; font-size: 10px; font-weight: 700; margin-top: 2px; letter-spacing: 0.3px; }
   @keyframes eyePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
   .robot .eye { animation: eyePulse 3.4s infinite ease-in-out; }
   @keyframes ringPulse { 0%, 100% { opacity: 0.35; transform: scale(1); } 50% { opacity: 0.85; transform: scale(1.08); } }
   .robot .thruster-ring { animation: ringPulse 2.3s infinite ease-in-out; transform-origin: 100px 205px; }
 
   #chat-log {
-    flex: 1; min-height: 0; display: flex; flex-direction: column;
-    overflow-y: auto; padding: 16px 4px 110px; gap: 8px;
+    flex: 2 1 0; min-height: 0; display: flex; flex-direction: column;
+    overflow-y: auto; padding: 14px 4px 90px; gap: 8px;
   }
   .chat-bubble {
     max-width: 78%; padding: 8px 14px; border-radius: 14px; font-size: 13px;
@@ -96,16 +101,17 @@
     color: var(--primary-fg); border-bottom-left-radius: 4px;
   }
 
-  /* floating search / chat bar, anchored to the center column */
+  /* floating search / chat bar, anchored to the center column — glow
+     matches the accent, same visual language as the rooms/cards now */
   .floating-bar {
     position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%);
     width: min(88%, 560px); background: var(--card-bg); border: 1px solid var(--card-border);
-    border-radius: 999px; box-shadow: 0 12px 34px rgba(0,0,0,0.45);
+    border-radius: 999px; box-shadow: 0 10px 26px rgba(0,0,0,0.35), 0 0 26px 2px var(--accent-glow);
     display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 20px;
   }
   #cmd-input {
     flex: 1; background: transparent; color: var(--primary-fg); border: none;
-    outline: none; font-size: 14px;
+    outline: none; font-size: 14px; font-family: inherit;
   }
   #cmd-input::placeholder { color: var(--muted-fg); }
   #send-btn {
@@ -115,32 +121,30 @@
   }
   #send-btn:hover { background: var(--accent-hover); }
 
-  /* right: agent task column (narrow, 10%) */
+  /* right: agent task column */
   .sidebar-right {
     background: var(--card-bg); border-left: 1px solid var(--card-border);
-    padding: 16px 10px; display: flex; flex-direction: column; min-height: 0;
+    padding: 18px 14px; display: flex; flex-direction: column; min-height: 0;
   }
-  .status-block { margin-bottom: 14px; }
-  .status-block .status { font-size: 12px; font-weight: 700; color: var(--state-idle); }
-  .status-block .mode { font-size: 10px; color: var(--muted-fg); margin-top: 2px; }
+  .status-block { margin-bottom: 16px; }
+  .status-block .status { font-size: 13px; font-weight: 700; color: var(--state-idle); }
+  .status-block .mode { font-size: 11px; color: var(--muted-fg); margin-top: 2px; }
   .section-title {
-    font-size: 10px; font-weight: 700; color: var(--title-fg); letter-spacing: 0.5px; margin-bottom: 8px;
+    font-size: 11px; font-weight: 700; color: var(--title-fg); letter-spacing: 0.6px; margin-bottom: 10px;
   }
-  #task-list { overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 6px; }
+  #task-list { overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 8px; }
   .task-card {
-    background: #20242e; border-radius: 8px; padding: 6px 8px; border-left: 3px solid var(--state-idle);
-    opacity: 0; transform: translateY(-6px); transition: opacity 0.25s ease, transform 0.25s ease;
+    background: #20242e; border-radius: 8px; padding: 7px 10px; border-left: 3px solid transparent;
+    opacity: 0; transform: translateY(-6px);
+    transition: opacity 0.25s ease, transform 0.25s ease, box-shadow 0.4s ease;
   }
   .task-card.visible { opacity: 1; transform: translateY(0); }
-  .task-card .task-agent { font-size: 10px; font-weight: 700; color: var(--title-fg); }
-  .task-card .task-detail { font-size: 11px; margin: 2px 0; word-break: break-word; }
-  .task-card .task-status { font-size: 9px; text-transform: uppercase; letter-spacing: 0.4px; }
-  .task-card.status-running { border-left-color: var(--state-listening); }
-  .task-card.status-running .task-status { color: var(--state-listening); }
-  .task-card.status-done { border-left-color: var(--state-executing); }
-  .task-card.status-done .task-status { color: var(--state-executing); }
-  .task-card.status-error { border-left-color: var(--state-error); }
-  .task-card.status-error .task-status { color: var(--state-error); }
+  .task-card .task-agent { font-size: 11px; font-weight: 700; }
+  .task-card .task-detail { font-size: 12px; margin: 3px 0; color: var(--primary-fg); word-break: break-word; }
+  .task-card .task-status { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .task-card .task-status.running { color: var(--state-listening); }
+  .task-card .task-status.done { color: var(--state-executing); }
+  .task-card .task-status.error { color: var(--state-error); }
 
   ::-webkit-scrollbar { width: 8px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -159,14 +163,27 @@
 
     <main class="workspace-center">
       <div class="stage" id="stage">
+        <svg class="grid-backdrop" id="grid-backdrop">
+          <circle class="grid-ring" id="ring-outer" r="0"></circle>
+          <circle class="grid-ring" id="ring-inner" r="0"></circle>
+        </svg>
         <svg class="connector-layer" id="connector-layer">
           <line id="line-app_agent"></line>
           <line id="line-document_agent"></line>
         </svg>
-        <div class="room room-brain" id="room-brain"><div class="room-label">Brain</div></div>
+        <div class="room-block">
+          <div class="room-label" id="label-brain">Nova</div>
+          <div class="room room-brain" id="room-brain"></div>
+        </div>
         <div class="room-row">
-          <div class="room room-app" id="room-app_agent"><div class="room-label">App Agent</div></div>
-          <div class="room room-doc" id="room-document_agent"><div class="room-label">Document Agent</div></div>
+          <div class="room-block">
+            <div class="room-label" id="label-app_agent">Appy</div>
+            <div class="room room-app" id="room-app_agent"></div>
+          </div>
+          <div class="room-block">
+            <div class="room-label" id="label-document_agent">Duc</div>
+            <div class="room room-doc" id="room-document_agent"></div>
+          </div>
         </div>
         <div id="robot-layer"></div>
       </div>
@@ -182,7 +199,7 @@
         <div class="status" id="status-text">idle</div>
         <div class="mode" id="mode-text"></div>
       </div>
-      <div class="section-title">TASKS</div>
+      <div class="section-title">AGENT TASKS</div>
       <div id="task-list"></div>
     </aside>
   </div>
@@ -247,15 +264,17 @@
         hoverPhase: Math.random() * 10,
       };
 
-      const roomLabel = document.querySelector(`#room-${id} .room-label`);
-      if (roomLabel) roomLabel.style.color = color;
+      const roomLabel = document.getElementById("label-" + id);
+      if (roomLabel) {
+        roomLabel.textContent = label;
+        roomLabel.style.color = color;
+      }
       setRoomGlow(id, 0); // idle: agent color at low intensity, no glow
 
       const wrap = document.createElement("div");
       wrap.className = "robot";
       wrap.id = "robot-" + id;
-      wrap.innerHTML = robotSVG(color, id) +
-        `<div class="robot-name" style="color:${color}">${label}</div>`;
+      wrap.innerHTML = robotSVG(color, id);
       layer.appendChild(wrap);
     }
     requestAnimationFrame(() => { refreshStageLayout(); });
@@ -299,6 +318,14 @@
         line.setAttribute("x2", sx); line.setAttribute("y2", sy);
       }
     }
+
+    // faint concentric grid rings, purely atmospheric
+    const cx = stageRect.width / 2, cy = stageRect.height / 2;
+    const maxR = Math.min(stageRect.width, stageRect.height) / 2;
+    const outer = document.getElementById("ring-outer");
+    const inner = document.getElementById("ring-inner");
+    outer.setAttribute("cx", cx); outer.setAttribute("cy", cy); outer.setAttribute("r", maxR * 0.92);
+    inner.setAttribute("cx", cx); inner.setAttribute("cy", cy); inner.setAttribute("r", maxR * 0.6);
   }
   window.addEventListener("resize", refreshStageLayout);
 
@@ -333,12 +360,18 @@
     log.scrollTop = log.scrollHeight;
   }
 
+  // ---- task cards: color = agent identity (border + name), matching the
+  // room/robot; status text keeps the separate semantic running/done/error
+  // palette — one consistent rule instead of two color systems ----
   function addTaskCard(agentId, detail) {
     const list = document.getElementById("task-list");
+    const color = ROLE_COLOR[agentId] || "#8a2be2";
     const card = document.createElement("div");
-    card.className = "task-card status-running";
-    card.innerHTML = `<div class="task-agent">${agentLabel[agentId]}</div>` +
-                      `<div class="task-detail"></div><div class="task-status">running</div>`;
+    card.className = "task-card";
+    card.style.borderLeftColor = color;
+    card.style.boxShadow = `0 0 10px 1px ${hexToRgba(color, 0.22)}`;
+    card.innerHTML = `<div class="task-agent" style="color:${color}">${agentLabel[agentId]}</div>` +
+                      `<div class="task-detail"></div><div class="task-status running">running</div>`;
     card.querySelector(".task-detail").textContent = detail;
     list.insertBefore(card, list.firstChild);
     taskCards[agentId] = card;
@@ -349,16 +382,16 @@
   function updateTaskCard(agentId, status) {
     const card = taskCards[agentId];
     if (!card) return;
-    card.className = "task-card visible status-" + status;
-    card.querySelector(".task-status").textContent = status;
+    const statusEl = card.querySelector(".task-status");
+    statusEl.textContent = status;
+    statusEl.className = "task-status " + status;
     delete taskCards[agentId];
   }
 
   // ---- room glow: always the agent's OWN color — idle is that color at
-  // low alpha (so every room has a persistent colored identity even at
-  // rest, per spec), active is the same color at full intensity with a
-  // glow. Done/error outcome is still shown distinctly on the task card
-  // in the sidebar, so nothing is lost by not re-hueing the room. ----
+  // low alpha (persistent colored identity even at rest), active is the
+  // same color at full intensity with a glow. Outcome (done/error) is
+  // shown on the task card, not by re-hueing the room. ----
   function setRoomGlow(agentId, intensity) {
     const room = document.getElementById("room-" + agentId);
     const color = ROLE_COLOR[agentId];
