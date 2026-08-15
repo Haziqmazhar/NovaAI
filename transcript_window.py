@@ -1,104 +1,80 @@
 """
-transcript_window.py — a small always-on-top window showing what Nova
-hears/reads and says, plus a live status line. This is the "visible status
-window" from the project plan's Phase 1 — a step up from the tray-only
-UI, without pulling in a heavier GUI framework than the stdlib's tkinter.
+transcript_window.py — Nova's dashboard, rendered as local HTML/CSS/JS
+(dashboard.html) inside a plain native window via pywebview — no browser
+chrome, no address bar, just a normal desktop window. This is a
+view-layer swap: brain.py and main.py only ever call the public methods
+below (log_line, set_state, handle_agent_event, get_command,
+request_quit, run), so nothing else in the app changed.
 
-When voice recognition is disabled (config.json "voice_enabled": false),
-the window also shows a text entry box so you can type commands directly
-instead of speaking them — useful for developing the agent/display without
-a microphone in the loop.
+pywebview's evaluate_js()/destroy() are safe to call from a background
+thread while webview.start() blocks the thread that created the window
+(confirmed empirically before building this) — so, unlike the earlier
+tkinter version, outbound UI updates call straight into evaluate_js with
+no queue/polling needed. The one thing that *does* still need a queue is
+the JS -> Python direction: pywebview delivers js_api calls on its own
+internal thread, and main.py's command loop polls get_command() from a
+different thread, so that handoff still goes through a Queue.
 
-Nova's command loop runs on a background thread; tkinter must only be
-touched from the thread that created it. All cross-thread communication
-goes through thread-safe queues that the Tk mainloop polls / that the
-background thread polls with a timeout.
+dashboard.html owns all the visual/animation logic (the line-art robot
+characters, task history table, console) — it's fully self-contained,
+no other file in the project defines any of the character/animation
+design.
 """
 
+import json
 import queue
-import tkinter as tk
-from tkinter import scrolledtext
+from pathlib import Path
 
-STATE_COLORS = {
-    "idle": "#888888",
-    "listening": "#1e90ff",
-    "executing": "#32cd32",
-    "error": "#dc143c",
-}
+import webview
+
+_DASHBOARD_HTML = (Path(__file__).parent / "dashboard.html").read_text(encoding="utf-8")
 
 
 class TranscriptWindow:
-    def __init__(self, agent_name: str, on_quit=None, text_input: bool = False):
-        self._queue = queue.Queue()
+    def __init__(self, agent_name: str, on_quit=None, text_input: bool = False,
+                 agents=None, brain_mode: str = ""):
         self._input_queue = queue.Queue()
         self._on_quit = on_quit
+        self._agents = agents or [("brain", "Brain")]
+        self._agent_name = agent_name
+        self._brain_mode = brain_mode
+        self._text_input = text_input
 
-        self.root = tk.Tk()
-        self.root.title(f"{agent_name} — transcript")
-        self.root.geometry("420x420" if text_input else "420x360")
-        self.root.attributes("-topmost", True)
-        self.root.protocol("WM_DELETE_WINDOW", self._handle_close)
-
-        self.status_label = tk.Label(
-            self.root, text="idle", fg=STATE_COLORS["idle"], font=("Segoe UI", 11, "bold")
+        self._window = webview.create_window(
+            f"{agent_name} — dashboard",
+            html=_DASHBOARD_HTML,
+            js_api=_Api(self._input_queue),
+            width=1200,
+            height=720,
+            min_size=(1000, 600),
+            background_color="#14161c",
         )
-        self.status_label.pack(pady=(8, 4))
-
-        self.log = scrolledtext.ScrolledText(
-            self.root, wrap=tk.WORD, state="disabled", font=("Segoe UI", 10)
-        )
-        self.log.pack(fill="both", expand=True, padx=8, pady=(0, 8))
-
-        if text_input:
-            entry_frame = tk.Frame(self.root)
-            entry_frame.pack(fill="x", padx=8, pady=(0, 8))
-
-            self.entry = tk.Entry(entry_frame, font=("Segoe UI", 10))
-            self.entry.pack(side="left", fill="x", expand=True)
-            self.entry.bind("<Return>", self._submit)
-            self.entry.focus_set()
-
-            send_button = tk.Button(entry_frame, text="Send", command=self._submit)
-            send_button.pack(side="left", padx=(6, 0))
-
-        self.root.after(100, self._poll)
-
-    def _submit(self, event=None):
-        text = self.entry.get().strip()
-        if text:
-            self._input_queue.put(text)
-            self.entry.delete(0, tk.END)
+        self._window.events.closed += self._handle_close
 
     def _handle_close(self):
         if self._on_quit:
             self._on_quit()
-        self.root.destroy()
 
-    def _poll(self):
+    def _safe_eval(self, js: str):
+        # The window may not be ready yet (very first "online" message can
+        # race window startup) or may already be closing — either is a
+        # normal, non-fatal race, not a bug worth surfacing.
         try:
-            while True:
-                kind, text = self._queue.get_nowait()
-                if kind == "state":
-                    state_key = text.split(" ")[0]
-                    self.status_label.config(text=text, fg=STATE_COLORS.get(state_key, "#888888"))
-                elif kind == "log":
-                    self.log.config(state="normal")
-                    self.log.insert(tk.END, text + "\n")
-                    self.log.see(tk.END)
-                    self.log.config(state="disabled")
-                elif kind == "quit":
-                    self.root.destroy()
-                    return
-        except queue.Empty:
+            self._window.evaluate_js(js)
+        except Exception:
             pass
-        self.root.after(100, self._poll)
 
     def set_state(self, state: str, detail: str = ""):
-        label = f"{state} ({detail})" if detail else state
-        self._queue.put(("state", label))
+        self._safe_eval(f"setStatus({json.dumps(state)}, {json.dumps(detail)})")
 
     def log_line(self, text: str):
-        self._queue.put(("log", text))
+        self._safe_eval(f"appendLog({json.dumps(text)})")
+
+    def handle_agent_event(self, event: dict):
+        """Called from Brain (background thread) on every agent state
+        transition. Drives the workspace panel's sprites, status rings,
+        traveling packets, and the task-history table."""
+        self._safe_eval(f"applyAgentEvent({json.dumps(event)})")
 
     def get_command(self, timeout: float = 0.5):
         """Blocks up to `timeout` seconds for a typed command; returns None
@@ -109,8 +85,25 @@ class TranscriptWindow:
             return None
 
     def request_quit(self):
-        """Thread-safe: ask the Tk mainloop to close the window."""
-        self._queue.put(("quit", ""))
+        self._window.destroy()
 
     def run(self):
-        self.root.mainloop()
+        def on_ready():
+            self._safe_eval(f"initAgents({json.dumps(self._agents)})")
+            self._safe_eval(f"setHeader({json.dumps(self._agent_name)}, {json.dumps(self._brain_mode)})")
+            if not self._text_input:
+                self._safe_eval("setInputVisible(false)")
+
+        webview.start(on_ready)
+
+
+class _Api:
+    """Exposed to dashboard.html as `pywebview.api`."""
+
+    def __init__(self, input_queue: queue.Queue):
+        self._input_queue = input_queue
+
+    def submit_command(self, text: str):
+        text = (text or "").strip()
+        if text:
+            self._input_queue.put(text)

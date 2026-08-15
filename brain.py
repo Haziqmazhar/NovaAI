@@ -88,6 +88,15 @@ READ_DOCUMENT_TOOL = {
 
 TOOLS = [OPEN_ITEM_TOOL, READ_DOCUMENT_TOOL]
 
+# Single source of truth for which nodes the visual workspace (see
+# transcript_window.py) should draw. main.py passes this to
+# TranscriptWindow so the window never needs to import brain.py.
+AGENTS = [
+    ("brain", "Brain"),
+    ("app_agent", "App Agent"),
+    ("document_agent", "Document Agent"),
+]
+
 
 def _describe_whitelist(config: dict) -> str:
     apps = ", ".join(sorted(config.get("apps", {}).keys())) or "none configured"
@@ -96,9 +105,9 @@ def _describe_whitelist(config: dict) -> str:
 
 
 class Brain:
-    def __init__(self, config: dict, on_progress=None):
+    def __init__(self, config: dict, on_agent_event=None):
         self.config = config
-        self.on_progress = on_progress or (lambda text: None)
+        self.on_agent_event = on_agent_event or (lambda event: None)
         self.state = SessionState()
 
         api_key = os.environ.get("ANTHROPIC_API_KEY")
@@ -124,6 +133,7 @@ class Brain:
         command path."""
         self.state.messages.append({"role": "user", "content": user_text})
 
+        self._emit("brain", "thinking")
         response = self.client.messages.create(
             model=MODEL,
             max_tokens=300,
@@ -152,6 +162,7 @@ class Brain:
                 )
             self.state.messages.append({"role": "user", "content": tool_results})
 
+            self._emit("brain", "thinking")
             response = self.client.messages.create(
                 model=MODEL,
                 max_tokens=300,
@@ -160,8 +171,12 @@ class Brain:
                 messages=self.state.messages,
             )
 
+        self._emit("brain", "idle")
         self.state.messages.append({"role": "assistant", "content": response.content})
         return "".join(block.text for block in response.content if block.type == "text").strip()
+
+    def _emit(self, agent_id: str, status: str, detail: str = ""):
+        self.on_agent_event({"agent": agent_id, "status": status, "detail": detail})
 
     def _run_tool(self, name: str, tool_input: dict) -> str:
         if name == "open_item":
@@ -173,22 +188,28 @@ class Brain:
         return f"Unknown tool: {name}"
 
     def _run_open_item(self, target_phrase: str) -> str:
+        self._emit("app_agent", "running", f"open {target_phrase}")
         kind, name, path = find_target(target_phrase, self.config)
         if not name:
+            self._emit("app_agent", "error", f"'{target_phrase}' not in whitelist")
             return f"'{target_phrase}' is not in config.json — cannot open it."
         ok = execute(kind, path)
         if ok:
+            self._emit("app_agent", "done", f"opened {name}")
             return f"Opened {name}."
+        self._emit("app_agent", "error", f"failed to open {name}")
         return f"Found {name} in config.json but the open call failed. Check its path."
 
     def _run_read_document(self, file_name: str, instruction: str) -> str:
         task_id = self.state.start_task(f"read {file_name}: {instruction}")
-        self.on_progress(f"Nova: reading {file_name}...")
+        self._emit("document_agent", "running", f"reading {file_name}")
         try:
             result = subagents.run_document_agent(self.config, self.client, MODEL, instruction, file_name)
             self.state.finish_task(task_id, result=result)
+            self._emit("document_agent", "done", f"read {file_name}")
             return result
         except Exception as e:
             error_text = f"The document agent crashed: {e}"
             self.state.finish_task(task_id, error=error_text)
+            self._emit("document_agent", "error", str(e))
             return error_text

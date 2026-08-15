@@ -15,3 +15,8 @@ anthropic>=0.40.0
 
 # PDF text extraction for the document sub-agent (read_document tool)
 pypdf>=5.0.0
+
+# Dashboard: local HTML/CSS/JS rendered in a native window (no browser
+# chrome) via the Edge WebView2 control. Needs the WebView2 Runtime,
+# which ships with Windows 10/11 on any machine with Edge installed.
+pywebview>=5.0

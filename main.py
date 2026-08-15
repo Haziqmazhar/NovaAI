@@ -28,7 +28,7 @@ import sys
 import threading
 
 from actions import execute, find_target
-from brain import Brain
+from brain import AGENTS, Brain
 from tray import StatusTray
 from transcript_window import TranscriptWindow
 from tts import Voice
@@ -199,14 +199,18 @@ def main():
         listener = SpeechListener(model_path)
 
     voice = Voice(enabled=config.get("tts_enabled", False))
+    brain = Brain(config)
+    brain_mode = "Claude-powered" if brain.enabled else "Offline pattern-matching"
 
     should_quit = threading.Event()
     window = TranscriptWindow(
         config.get("agent_name", "Nova"),
         on_quit=should_quit.set,
         text_input=not voice_enabled,
+        agents=AGENTS,
+        brain_mode=brain_mode,
     )
-    brain = Brain(config, on_progress=window.log_line)
+    brain.on_agent_event = window.handle_agent_event
 
     tray = StatusTray(on_quit=lambda: (should_quit.set(), window.request_quit()))
     tray.run_in_background()
