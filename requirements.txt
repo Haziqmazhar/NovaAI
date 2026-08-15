@@ -9,9 +9,9 @@ pyttsx3==2.90
 pystray==0.19.5
 Pillow>=11.0
 
-# Optional Claude-powered reasoning layer (falls back to offline pattern
-# matching if ANTHROPIC_API_KEY isn't set)
-anthropic>=0.40.0
+# Optional GPT-powered reasoning layer (falls back to offline pattern
+# matching if OPENAI_API_KEY isn't set)
+openai>=1.50.0
 
 # PDF text extraction for the document sub-agent (read_document tool)
 pypdf>=5.0.0

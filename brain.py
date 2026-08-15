@@ -1,30 +1,34 @@
 """
-brain.py — Nova's orchestrator: a Claude-powered reasoning layer that
+brain.py — Nova's orchestrator: a GPT-powered reasoning layer that
 decomposes requests and routes them to the right capability.
 
 The whitelist gate lives entirely in actions.py (find_target / execute)
 and subagents.py's own folder check. Every tool the orchestrator can call
 — open_item, read_document — is wired straight into one of those checks;
 there is no path from a model response to raw execution. If no
-ANTHROPIC_API_KEY is set, Brain.enabled is False and main.py falls back
-to the old pattern-matching "open X" handling, so Nova still works fully
+OPENAI_API_KEY is set, Brain.enabled is False and main.py falls back to
+the old pattern-matching "open X" handling, so Nova still works fully
 offline.
 
 Sub-agents (currently: the document agent in subagents.py) are plain
 Python function calls, not separate processes — each gets its own
-narrowly-scoped, tool-less Claude call and zero direct system access.
+narrowly-scoped, tool-less GPT call and zero direct system access.
 SessionState (session_state.py) is the shared "world state": persisted
 conversation history plus a lightweight task registry the orchestrator
 updates before/after delegating to a sub-agent.
+
+Uses OpenAI's Responses API (client.responses.create), the current
+recommended surface for tool use — not the older Chat Completions API.
 """
 
+import json
 import os
 
 import subagents
 from actions import execute, find_target
 from session_state import SessionState
 
-MODEL = "claude-haiku-4-5"
+MODEL = "gpt-5-mini"
 
 SYSTEM_PROMPT_TEMPLATE = """You are {agent_name}, a small offline-first desktop assistant running on the user's Windows laptop.
 
@@ -42,13 +46,14 @@ Rules:
 - Keep replies short (1-2 sentences) — they may be read aloud by text-to-speech."""
 
 OPEN_ITEM_TOOL = {
+    "type": "function",
     "name": "open_item",
     "description": (
         "Open a pre-approved app or folder by name. Only works for items "
         "already listed in the user's config.json whitelist — cannot open "
         "anything else."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "name": {
@@ -61,6 +66,7 @@ OPEN_ITEM_TOOL = {
 }
 
 READ_DOCUMENT_TOOL = {
+    "type": "function",
     "name": "read_document",
     "description": (
         "Read a file inside one of the user's pre-approved folders and do "
@@ -70,7 +76,7 @@ READ_DOCUMENT_TOOL = {
         "whitelist — cannot read files anywhere else. Supports .txt, .md, "
         "and .pdf files."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "file_name": {
@@ -110,23 +116,23 @@ class Brain:
         self.on_agent_event = on_agent_event or (lambda event: None)
         self.state = SessionState()
 
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        api_key = os.environ.get("OPENAI_API_KEY")
         self.enabled = bool(api_key) and config.get("use_ai_brain", True)
 
         if not self.enabled:
             self.client = None
             return
 
-        import anthropic
+        from openai import OpenAI
 
-        self.client = anthropic.Anthropic(api_key=api_key)
+        self.client = OpenAI(api_key=api_key)
         self.system = SYSTEM_PROMPT_TEMPLATE.format(
             agent_name=config.get("agent_name", "Nova"),
             whitelist_summary=_describe_whitelist(config),
         )
 
     def respond(self, user_text: str) -> str:
-        """Send user_text to Claude, running tools as needed, and return
+        """Send user_text to GPT, running tools as needed, and return
         the final reply. Conversation history persists across calls
         within a session via self.state.messages. Raises on API/network
         failure — callers should catch and fall back to the offline
@@ -134,46 +140,41 @@ class Brain:
         self.state.messages.append({"role": "user", "content": user_text})
 
         self._emit("brain", "thinking")
-        response = self.client.messages.create(
+        response = self.client.responses.create(
             model=MODEL,
-            max_tokens=300,
-            system=self.system,
+            instructions=self.system,
             tools=TOOLS,
-            messages=self.state.messages,
+            input=self.state.messages,
         )
 
         # Bounded loop: caps how many tool round-trips one command can
         # trigger, so a confused model can't loop forever.
         for _ in range(5):
-            if response.stop_reason != "tool_use":
+            self.state.messages += response.output
+            function_calls = [item for item in response.output if item.type == "function_call"]
+            if not function_calls:
                 break
 
-            self.state.messages.append({"role": "assistant", "content": response.content})
-            tool_results = []
-            for block in response.content:
-                if block.type != "tool_use":
-                    continue
-                tool_results.append(
+            for call in function_calls:
+                tool_input = json.loads(call.arguments)
+                self.state.messages.append(
                     {
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": self._run_tool(block.name, block.input),
+                        "type": "function_call_output",
+                        "call_id": call.call_id,
+                        "output": self._run_tool(call.name, tool_input),
                     }
                 )
-            self.state.messages.append({"role": "user", "content": tool_results})
 
             self._emit("brain", "thinking")
-            response = self.client.messages.create(
+            response = self.client.responses.create(
                 model=MODEL,
-                max_tokens=300,
-                system=self.system,
+                instructions=self.system,
                 tools=TOOLS,
-                messages=self.state.messages,
+                input=self.state.messages,
             )
 
         self._emit("brain", "idle")
-        self.state.messages.append({"role": "assistant", "content": response.content})
-        return "".join(block.text for block in response.content if block.type == "text").strip()
+        return (response.output_text or "").strip()
 
     def _emit(self, agent_id: str, status: str, detail: str = ""):
         self.on_agent_event({"agent": agent_id, "status": status, "detail": detail})

@@ -9,11 +9,11 @@ How it works, in plain terms:
      Nova skips Vosk and the microphone entirely and instead takes typed
      commands from the transcript window — no wake word needed there,
      since typing is already an explicit action.
-  2. If an ANTHROPIC_API_KEY is set, the command goes to Claude
-     (brain.py), which can chat normally and has exactly one tool —
-     open_item — wired straight into the same whitelist gate as before.
-     Without a key, Nova falls back to the original "open X" pattern
-     match, so it still works fully offline.
+  2. If an OPENAI_API_KEY is set, the command goes to GPT (brain.py),
+     which can chat normally and has two tools — open_item and
+     read_document — wired straight into the same whitelist gate as
+     before. Without a key, Nova falls back to the original "open X"
+     pattern match, so it still works fully offline.
   3. A transcript window shows what Nova heard/read and said; the tray
      icon keeps showing idle/listening/executing at a glance.
 
@@ -58,7 +58,7 @@ def voice_loop(config: dict, listener, voice: Voice, brain: Brain,
     listen_after_wake = config.get("listen_timeout_after_wake_seconds", 6)
 
     print(f"[Nova] Ready. Say '{wake_word}' to activate me. (Ctrl+C or tray menu to quit)")
-    mode = "Claude-powered" if brain.enabled else "offline pattern-matching"
+    mode = "GPT-powered" if brain.enabled else "offline pattern-matching"
     print(f"[Nova] Command handling: {mode}")
     window.log_line(f"[Nova] Command handling: {mode}")
     voice.say(f"{config.get('agent_name', 'Nova')} is online.")
@@ -101,7 +101,7 @@ def text_loop(config: dict, voice: Voice, brain: Brain,
               tray: StatusTray, window: TranscriptWindow, should_quit: threading.Event):
     print("[Nova] Voice recognition is disabled (voice_enabled: false in config.json).")
     print("[Nova] Type a command in the transcript window and press Enter. (Ctrl+C or tray menu to quit)")
-    mode = "Claude-powered" if brain.enabled else "offline pattern-matching"
+    mode = "GPT-powered" if brain.enabled else "offline pattern-matching"
     print(f"[Nova] Command handling: {mode}")
     window.log_line(f"[Nova] Command handling: {mode}")
     window.log_line("Voice recognition is off — type a command below and press Enter.")
@@ -136,8 +136,8 @@ def handle_command(command_text: str, config: dict, voice: Voice, brain: Brain,
         try:
             reply = brain.respond(command_text)
         except Exception as e:
-            print(f"[Nova] Claude API call failed, falling back to offline handling: {e}")
-            window.log_line(f"[Nova] Claude API call failed ({e}); handling offline instead.")
+            print(f"[Nova] GPT API call failed, falling back to offline handling: {e}")
+            window.log_line(f"[Nova] GPT API call failed ({e}); handling offline instead.")
             reply = None
 
         if reply:
@@ -200,7 +200,7 @@ def main():
 
     voice = Voice(enabled=config.get("tts_enabled", False))
     brain = Brain(config)
-    brain_mode = "Claude-powered" if brain.enabled else "Offline pattern-matching"
+    brain_mode = "GPT-powered" if brain.enabled else "Offline pattern-matching"
 
     should_quit = threading.Event()
     window = TranscriptWindow(

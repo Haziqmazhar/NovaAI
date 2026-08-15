@@ -1,6 +1,6 @@
 """
 subagents.py — specialized sub-agents the orchestrator (brain.py) can
-delegate to. Each sub-agent gets its own narrow, tool-less Claude call and
+delegate to. Each sub-agent gets its own narrow, tool-less GPT call and
 zero direct system access — the only thing it can touch is what its own
 function explicitly reads, inside an explicit whitelist check. Extend
 this file with one function per new sub-agent capability.
@@ -53,7 +53,7 @@ def _extract_text(path: str) -> str:
 
 
 def run_document_agent(config: dict, client, model: str, instruction: str, file_name: str) -> str:
-    """Read a whitelisted file and have a scoped Claude call act on it per
+    """Read a whitelisted file and have a scoped GPT call act on it per
     `instruction`. Returns the result text, or a plain-language error
     string on any failure — never raises, so a bad file/instruction can't
     crash the orchestrator's turn."""
@@ -74,13 +74,12 @@ def run_document_agent(config: dict, client, model: str, instruction: str, file_
     last_error = None
     for _attempt in range(2):  # one retry on a transient API failure
         try:
-            response = client.with_options(timeout=REQUEST_TIMEOUT_SECONDS).messages.create(
+            response = client.with_options(timeout=REQUEST_TIMEOUT_SECONDS).responses.create(
                 model=model,
-                max_tokens=1000,
-                system=DOCUMENT_AGENT_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": prompt}],
+                instructions=DOCUMENT_AGENT_SYSTEM_PROMPT,
+                input=[{"role": "user", "content": prompt}],
             )
-            return "".join(block.text for block in response.content if block.type == "text").strip()
+            return (response.output_text or "").strip()
         except Exception as e:
             last_error = e
 

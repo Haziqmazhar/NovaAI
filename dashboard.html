@@ -67,12 +67,8 @@
     background: rgba(255,255,255,0.015);
     transition: border-color 0.4s ease, box-shadow 0.4s ease;
   }
-  .room-block { display: flex; flex-direction: column; align-items: center; gap: 6px; }
   .room-brain, .room-app, .room-doc { width: 180px; height: 144px; flex: none; } /* height = 80% of width, same for every room */
   .room-row { display: flex; gap: 22px; justify-content: center; }
-  .room-label {
-    font-size: 11px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
-  }
 
   /* robots: real inline SVG, positioned + scaled via CSS transform (not
      canvas) so motion is GPU-composited and can layer arc + overshoot +
@@ -80,6 +76,10 @@
   #robot-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
   .robot { position: absolute; will-change: transform; }
   .robot svg { display: block; overflow: visible; }
+  .robot-name {
+    text-align: center; font-size: 11px; font-weight: 700; margin-top: 2px;
+    letter-spacing: 0.3px; text-transform: uppercase;
+  }
   @keyframes eyePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
   .robot .eye { animation: eyePulse 3.4s infinite ease-in-out; }
   @keyframes ringPulse { 0%, 100% { opacity: 0.35; transform: scale(1); } 50% { opacity: 0.85; transform: scale(1.08); } }
@@ -171,19 +171,10 @@
           <line id="line-app_agent"></line>
           <line id="line-document_agent"></line>
         </svg>
-        <div class="room-block">
-          <div class="room-label" id="label-brain">Nova</div>
-          <div class="room room-brain" id="room-brain"></div>
-        </div>
+        <div class="room room-brain" id="room-brain"></div>
         <div class="room-row">
-          <div class="room-block">
-            <div class="room-label" id="label-app_agent">Appy</div>
-            <div class="room room-app" id="room-app_agent"></div>
-          </div>
-          <div class="room-block">
-            <div class="room-label" id="label-document_agent">Duc</div>
-            <div class="room room-doc" id="room-document_agent"></div>
-          </div>
+          <div class="room room-app" id="room-app_agent"></div>
+          <div class="room room-doc" id="room-document_agent"></div>
         </div>
         <div id="robot-layer"></div>
       </div>
@@ -264,17 +255,13 @@
         hoverPhase: Math.random() * 10,
       };
 
-      const roomLabel = document.getElementById("label-" + id);
-      if (roomLabel) {
-        roomLabel.textContent = label;
-        roomLabel.style.color = color;
-      }
       setRoomGlow(id, 0); // idle: agent color at low intensity, no glow
 
       const wrap = document.createElement("div");
       wrap.className = "robot";
       wrap.id = "robot-" + id;
-      wrap.innerHTML = robotSVG(color, id);
+      wrap.innerHTML = robotSVG(color, id) +
+        `<div class="robot-name" style="color:${color}">${label}</div>`;
       layer.appendChild(wrap);
     }
     requestAnimationFrame(() => { refreshStageLayout(); });
@@ -333,7 +320,8 @@
     document.getElementById("brand-name").textContent = agentName.toUpperCase();
     const modeEl = document.getElementById("mode-text");
     modeEl.textContent = brainMode ? "● " + brainMode : "";
-    modeEl.style.color = brainMode.toLowerCase().startsWith("claude") ? "var(--state-executing)" : "var(--muted-fg)";
+    modeEl.style.color = brainMode && !brainMode.toLowerCase().includes("offline")
+      ? "var(--state-executing)" : "var(--muted-fg)";
   }
 
   function setInputVisible(visible) {

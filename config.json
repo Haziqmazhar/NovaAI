@@ -11,7 +11,7 @@
   "_comment_tts_enabled": "If false, Nova stays silent and just prints/logs replies instead of speaking them aloud. Set to true to hear Nova talk again.",
   "tts_enabled": false,
 
-  "_comment_use_ai_brain": "If true (default) and the ANTHROPIC_API_KEY environment variable is set, commands go to Claude Haiku 4.5 for interpretation before falling back to offline pattern matching. Set to false to force offline-only mode even with a key set.",
+  "_comment_use_ai_brain": "If true (default) and the OPENAI_API_KEY environment variable is set, commands go to GPT (gpt-5-mini) for interpretation before falling back to offline pattern matching. Set to false to force offline-only mode even with a key set.",
   "use_ai_brain": true,
 
   "_comment_apps": "Add any app you want Nova to be allowed to open. key = the word you'll say, value = full path to the .exe (or just the exe name if it's on PATH, like notepad.exe)",

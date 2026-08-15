@@ -4,13 +4,13 @@ Nova listens for the wake word **"hey nova"**, then opens whatever whitelisted
 app or folder you ask for — e.g. *"hey nova, open chrome"*. Speech recognition
 (Vosk) and text-to-speech (pyttsx3) both run **offline**, no API key required.
 
-Nova now optionally routes commands through **Claude (Haiku 4.5)** so it can
+Nova now optionally routes commands through **GPT (gpt-5-mini)** so it can
 hold a normal conversation and understand open-ended phrasing, not just exact
-"open X" commands. Claude gets exactly one tool — `open_item` — wired
-straight into the same whitelist gate `actions.py` always enforced, so it can
-still only ever open things you've pre-approved in `config.json`. If you
-don't set an API key, Nova falls back to the original offline pattern
-matching automatically — nothing breaks.
+"open X" commands. GPT gets two tools — `open_item` and `read_document` —
+wired straight into the same whitelist gate `actions.py` always enforced, so
+it can still only ever touch apps/folders/files you've pre-approved in
+`config.json`. If you don't set an API key, Nova falls back to the original
+offline pattern matching automatically — nothing breaks.
 
 A small always-on-top **transcript window** now shows what Nova heard and
 said, alongside the tray icon's idle/listening/executing status.
@@ -63,19 +63,19 @@ with `nova_agent/model/` containing files like `am`, `conf`, `graph`, etc.
 (If you'd rather keep the original folder name, just update
 `vosk_model_path` in `config.json` to point at it.)
 
-## 4. (Optional) Enable the Claude-powered brain
+## 4. (Optional) Enable the GPT-powered brain
 
 Nova works fully offline without this step — skip it if you just want the
 original "open X" behavior.
 
 To let Nova understand open-ended requests and hold a conversation:
 
-1. Get an API key from the [Anthropic Console](https://console.anthropic.com/)
+1. Get an API key from the [OpenAI Platform](https://platform.openai.com/api-keys)
    (this requires setting up billing — see cost notes below).
 2. Set it as an environment variable before running Nova:
 
    ```powershell
-   $env:ANTHROPIC_API_KEY = "sk-ant-..."
+   $env:OPENAI_API_KEY = "sk-proj-..."
    python main.py
    ```
 
@@ -83,21 +83,22 @@ To let Nova understand open-ended requests and hold a conversation:
    instead (Settings → System → About → Advanced system settings →
    Environment Variables) so you don't have to re-set it every session.
 
-**Cost:** Nova uses Claude Haiku 4.5, the fastest/cheapest Claude model. A
-typical short command is a few hundred tokens — for personal, occasional use
-this comes out to well under $1/month.
+**Cost:** Nova uses `gpt-5-mini`, one of OpenAI's cheapest tiers. A typical
+short command is a few hundred tokens — for personal, occasional use this
+comes out to well under $1/month.
 
 **Privacy:** with a key set, your spoken commands (as text) are sent to
-Anthropic's API for that one request. Per Anthropic's standard API terms,
-this data isn't used to train models and is retained only briefly for abuse
-monitoring — but it does leave your machine, unlike everything else in Nova.
-If you'd rather keep everything fully local, don't set the key (or set
-`"use_ai_brain": false` in `config.json`) and Nova runs exactly as in v1.
+OpenAI's API for that one request. Per OpenAI's standard API terms, this
+data isn't used to train models by default (opt-in only) and is retained
+only briefly (~30 days) for abuse monitoring — but it does leave your
+machine, unlike everything else in Nova. If you'd rather keep everything
+fully local, don't set the key (or set `"use_ai_brain": false` in
+`config.json`) and Nova runs exactly as in v1.
 
 ## 5. Install/upgrade dependencies
 
 If you set up `venv` before this update, re-run `pip install -r requirements.txt`
-to pick up the `anthropic` package (needed only if you enabled the brain in
+to pick up the `openai` package (needed only if you enabled the brain in
 step 4 — harmless either way).
 
 ## 6. Configure your whitelist
@@ -151,17 +152,18 @@ and undo by hand, at least while you're still trusting this project.)*
 ## Security notes (please read)
 
 - Nova can **only** open things listed in `config.json`. There is no code
-  path — not even through Claude — that takes what you say and runs it as a
-  raw shell command. Claude (when enabled) has exactly one tool, `open_item`,
-  and that tool calls straight into the same `find_target`/`execute`
-  whitelist gate the offline path always used. Claude can suggest calling
-  the tool; it cannot widen what the tool is allowed to do.
+  path — not even through GPT — that takes what you say and runs it as a
+  raw shell command. GPT (when enabled) has exactly two tools, `open_item`
+  and `read_document`, and each calls straight into an explicit whitelist
+  check (`find_target`/`execute` for apps/folders, a folder-boundary check
+  in `subagents.py` for files). GPT can suggest calling a tool; it cannot
+  widen what the tool is allowed to do.
 - Nova does not have file *editing*, deletion, or browsing capabilities —
-  it can only launch apps/folders you've pre-approved.
+  it can only launch apps/folders, or read files, that you've pre-approved.
 - Speech-to-text and text-to-speech always happen locally, regardless of
-  whether the Claude brain is enabled.
-- **With `ANTHROPIC_API_KEY` set**, the text of your commands (not raw audio)
-  is sent to Anthropic's API to generate a response. This is the one place
+  whether the GPT brain is enabled.
+- **With `OPENAI_API_KEY` set**, the text of your commands (not raw audio)
+  is sent to OpenAI's API to generate a response. This is the one place
   data leaves your machine. Without the key set (or with `"use_ai_brain":
   false` in `config.json`), Nova is exactly as offline as v1. See step 4
   above for the cost/privacy tradeoff.
@@ -172,9 +174,9 @@ Natural next steps, roughly in order of difficulty:
 
 1. **More command types** — beyond "open X", you could add "close X" (kill
    a process), "search for X" (open a browser search), volume control, etc.
-   With the Claude brain enabled, the more natural extension is a second
-   tool (e.g. `close_item`) rather than another `if` branch — Claude will
-   pick the right tool from context instead of needing exact phrasing.
+   With the GPT brain enabled, the more natural extension is another tool
+   (e.g. `close_item`) rather than another `if` branch — GPT will pick the
+   right tool from context instead of needing exact phrasing.
 2. **Multi-turn memory** — `brain.py` currently sends one user turn per
    command with no history. Keeping a short rolling conversation would let
    you say "actually, open my documents instead" and have Nova understand
