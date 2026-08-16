@@ -229,6 +229,21 @@ def main():
 
     brain.on_reminder = deliver_reminder
 
+    discord_token = os.environ.get("DISCORD_BOT_TOKEN")
+    if config.get("discord_enabled", False) and discord_token:
+        # Imported lazily so discord.py is only required when this
+        # opt-in feature is actually turned on, same pattern as speech.py.
+        from discord_agent import DiscordAgent
+
+        discord_agent_instance = DiscordAgent(config, brain)
+        brain.discord_agent = discord_agent_instance
+        threading.Thread(
+            target=discord_agent_instance.run, args=(discord_token,), daemon=True
+        ).start()
+        window.log_line("[Nova] Discord bot starting...")
+    elif config.get("discord_enabled", False):
+        print("[Nova] discord_enabled is true but DISCORD_BOT_TOKEN isn't set — skipping Discord.")
+
     tray = StatusTray(on_quit=lambda: (should_quit.set(), window.request_quit()))
     tray.run_in_background()
 

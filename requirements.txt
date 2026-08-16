@@ -23,3 +23,8 @@ openpyxl>=3.1.0
 # chrome) via the Edge WebView2 control. Needs the WebView2 Runtime,
 # which ships with Windows 10/11 on any machine with Edge installed.
 pywebview>=5.0
+
+# Optional Discord bot (mouth + ears via Discord) — off by default
+# (discord_enabled: false in config.json). Requires DISCORD_BOT_TOKEN set
+# as an environment variable, same pattern as OPENAI_API_KEY.
+discord.py>=2.4.0

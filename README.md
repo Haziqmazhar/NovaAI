@@ -6,20 +6,22 @@ app or folder you ask for — e.g. *"hey nova, open chrome"*. Speech recognition
 
 Nova now optionally routes commands through **GPT (gpt-5-mini)** so it can
 hold a normal conversation and understand open-ended phrasing, not just exact
-"open X" commands. GPT gets six tools by default — `open_item`,
-`read_document`, `list_documents`, `download_file`, `set_reminder`, and
-`web_search` — wired straight into the same whitelist gate `actions.py`
-always enforced, so it can still only ever touch apps/folders/files you've
-pre-approved in `config.json`. A seventh, `remember`, is off by default and
-opt-in (see **Give Nova persistent memory** below). `download_file` and
-`remember` are the two exceptions worth knowing about: they're Nova's only
-capabilities that **write** to disk rather than only reading — see
-**Security notes** below for the safeguards around each. `set_reminder` and
-`web_search` sit outside the whitelist gate entirely, by nature rather than
-by oversight: `set_reminder` never touches the filesystem at all (it's just
-a background timer), and `web_search` never touches your machine's
-files/apps either (it's outbound web lookups via OpenAI). If you don't set
-an API key, Nova falls back to the original offline pattern matching
+"open X" commands. GPT gets seven tools by default — `open_item`,
+`read_document`, `list_documents`, `download_file`, `launch_coding_agent`,
+`set_reminder`, and `web_search` — wired straight into the same whitelist
+gate `actions.py` always enforced, so it can still only ever touch
+apps/folders/files/repos you've pre-approved in `config.json`. Two more are
+off by default and opt-in: `remember` (see **Give Nova persistent memory**)
+and five Discord server-management tools (see **Give Nova a Discord
+channel**). `download_file` and `remember` are Nova's only capabilities that
+**write** to disk; `launch_coding_agent` and the Discord tools are the ones
+where Nova's *own* restrictions aren't the only backstop — see **Security
+notes** below for the full breakdown of each. `set_reminder` and `web_search`
+sit outside the whitelist gate entirely, by nature rather than by oversight:
+`set_reminder` never touches the filesystem at all (it's just a background
+timer), and `web_search` never touches your machine's files/apps either (it's
+outbound web lookups via OpenAI). If you don't set an API key, Nova falls
+back to the original offline pattern matching
 automatically — nothing breaks.
 
 A small always-on-top **transcript window** now shows what Nova heard and
@@ -220,6 +222,44 @@ opens, already `cd`'d into that folder. Nova doesn't seed a task into it yet
 — you type into the new window yourself once it's open. See **Security
 notes** below for why this one is worth treating carefully.
 
+## 11. (Optional) Give Nova a Discord channel
+
+Nova can run a Discord bot as a third input/output channel alongside voice
+and the dashboard — DM it (or message it in one whitelisted server) and it
+responds the same way it would locally, plus it can manage that one server's
+channels (create/rename/delete channels, send/delete messages).
+
+**Set it up:**
+
+1. Create an application + bot at the
+   [Discord Developer Portal](https://discord.com/developers/applications).
+2. Under **Bot**, enable the **Message Content Intent** (a privileged intent —
+   without this the bot can't read message text at all).
+3. Copy the bot token and set it as an environment variable:
+   ```powershell
+   $env:DISCORD_BOT_TOKEN = "your-token-here"
+   ```
+4. Under **OAuth2 → URL Generator**, pick the `bot` scope and only these
+   permissions: **View Channels, Send Messages, Read Message History, Manage
+   Messages, Manage Channels**. Do **not** grant Kick Members, Ban Members,
+   Manage Roles, or Administrator — Nova's tools don't use them, and leaving
+   them off the bot itself is real protection if the token ever leaks (see
+   **Security notes**). Use the generated URL to invite the bot to your
+   server.
+5. In Discord, enable **Developer Mode** (User Settings → Advanced), then
+   right-click your own name to **Copy User ID**, and right-click the server
+   to **Copy Server ID**.
+6. In `config.json`, set:
+   ```json
+   "discord_enabled": true,
+   "discord_owner_id": "your user id",
+   "discord_guild_id": "your server id"
+   ```
+
+Only messages from `discord_owner_id` are ever treated as commands — everyone
+else's messages are visible to the bot but never acted on. This is a hard
+check in code, not something GPT decides.
+
 ---
 
 ## Security notes (please read)
@@ -259,6 +299,28 @@ notes** below for why this one is worth treating carefully.
   agent having full access to. There is deliberately no way for Nova to seed
   a task into that session yet (see step 10) — it opens empty, so there's no
   path for spoken/typed text to become a command-line argument at all.
+- The **Discord bot** (Herald) is the second capability, after the coding
+  agent, where Nova's own tool-level restrictions aren't the only backstop —
+  the bot's actual Discord-granted permissions are too:
+  - **Authorization is a hard, code-level gate.** `discord_agent.py`'s
+    `_is_authorized` checks the message author's ID against
+    `discord_owner_id` *before* anything reaches GPT — never an LLM judgment
+    call. Everyone else's messages are visible to the bot (Discord requires
+    that to route messages at all) but are never acted on.
+  - **Every action is scoped to one server.** `discord_guild_id` is the only
+    server Nova's tools will ever touch, even if the bot is later invited to
+    others.
+  - **Kick/ban/role management are deliberately excluded from v1**, not just
+    left unwhitelisted — the tools don't exist. Deleting a channel or message
+    is recoverable-ish; removing a real person from a community on a misfire
+    isn't, and there's no way to delegate this one to a separately-gated real
+    tool the way `launch_coding_agent` does for coding.
+  - **The bot's own Discord permission grant is real defense in depth.** If
+    the bot token itself ever leaked, Nova's code-level checks wouldn't help
+    the attacker be stopped by Discord — only the permissions actually
+    granted when you invited the bot would. That's why step 11 above asks you
+    to grant only Manage Channels/Messages/Send/View/Read History, and
+    explicitly not Administrator or membership permissions.
 - `set_reminder` and `web_search` are deliberately **not** whitelist-gated —
   not an oversight, but because neither one touches your local apps or
   files, so the whitelist's purpose (bounding what Nova can do *to your

@@ -222,6 +222,81 @@ REMEMBER_TOOL = {
     },
 }
 
+# The next five are only offered to the model when config.json's
+# "discord_enabled" is true and a real DiscordAgent is wired up (see
+# Brain.__init__) — same explicit-opt-in treatment as REMEMBER_TOOL. Every
+# one of them acts only inside the one whitelisted Discord server
+# (discord_agent.py enforces this, not the model).
+DISCORD_SEND_MESSAGE_TOOL = {
+    "type": "function",
+    "name": "discord_send_message",
+    "description": "Send a message to a channel in the whitelisted Discord server.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "channel_name": {"type": "string", "description": "The channel name, e.g. 'general'."},
+            "text": {"type": "string", "description": "The message to send."},
+        },
+        "required": ["channel_name", "text"],
+    },
+}
+
+DISCORD_CREATE_CHANNEL_TOOL = {
+    "type": "function",
+    "name": "discord_create_channel",
+    "description": "Create a new text channel in the whitelisted Discord server.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "channel_name": {"type": "string", "description": "Name for the new channel."},
+        },
+        "required": ["channel_name"],
+    },
+}
+
+DISCORD_DELETE_CHANNEL_TOOL = {
+    "type": "function",
+    "name": "discord_delete_channel",
+    "description": "Delete a text channel in the whitelisted Discord server. This can't be undone.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "channel_name": {"type": "string", "description": "Name of the channel to delete."},
+        },
+        "required": ["channel_name"],
+    },
+}
+
+DISCORD_RENAME_CHANNEL_TOOL = {
+    "type": "function",
+    "name": "discord_rename_channel",
+    "description": "Rename a text channel in the whitelisted Discord server.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "channel_name": {"type": "string", "description": "Current channel name."},
+            "new_name": {"type": "string", "description": "New name for the channel."},
+        },
+        "required": ["channel_name", "new_name"],
+    },
+}
+
+DISCORD_DELETE_LAST_BOT_MESSAGE_TOOL = {
+    "type": "function",
+    "name": "discord_delete_last_bot_message",
+    "description": (
+        "Delete Nova's own most recent message in a Discord channel. Only "
+        "ever deletes a message Nova itself sent — never another user's."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "channel_name": {"type": "string", "description": "Channel to delete Nova's last message from."},
+        },
+        "required": ["channel_name"],
+    },
+}
+
 LAUNCH_CODING_AGENT_TOOL = {
     "type": "function",
     "name": "launch_coding_agent",
@@ -265,6 +340,7 @@ AGENTS = [
     ("reminder_agent", "Remy", "#ffb454"),
     ("lookup_agent", "Scout", "#3dd6dc"),
     ("coding_agent", "Cody", "#ff5f7e"),
+    ("discord_agent", "Herald", "#f4c94c"),
 ]
 
 
@@ -285,6 +361,12 @@ class Brain:
         self.on_agent_event = on_agent_event or (lambda event: None)
         self.on_reminder = on_reminder or (lambda message: None)
         self.state = SessionState()
+        # Wired externally by main.py once a DiscordAgent has been built —
+        # None until then, and stays None entirely if discord_enabled is
+        # false. Tool *availability* below only checks config, not this
+        # attribute, since main.py constructs Brain before DiscordAgent
+        # (which itself needs a Brain instance to hand messages to).
+        self.discord_agent = None
 
         api_key = os.environ.get("OPENAI_API_KEY")
         self.enabled = bool(api_key) and config.get("use_ai_brain", True)
@@ -292,6 +374,14 @@ class Brain:
         self.tools = list(TOOLS)
         if config.get("memory_enabled", False):
             self.tools.append(REMEMBER_TOOL)
+        if config.get("discord_enabled", False):
+            self.tools += [
+                DISCORD_SEND_MESSAGE_TOOL,
+                DISCORD_CREATE_CHANNEL_TOOL,
+                DISCORD_DELETE_CHANNEL_TOOL,
+                DISCORD_RENAME_CHANNEL_TOOL,
+                DISCORD_DELETE_LAST_BOT_MESSAGE_TOOL,
+            ]
 
         if not self.enabled:
             self.client = None
@@ -312,6 +402,8 @@ class Brain:
         )
         if self.config.get("memory_enabled", False):
             prompt += "\n\n" + self._memory_block()
+        if self.config.get("discord_enabled", False):
+            prompt += "\n\n" + self._discord_block()
         return prompt
 
     def _memory_block(self) -> str:
@@ -321,6 +413,19 @@ class Brain:
             "for things that are true and worth keeping long-term, not "
             "routine commands.\n\n"
             f"What you already remember about the user:\n{memory.read_memory(self.config)}"
+        )
+
+    def _discord_block(self) -> str:
+        return (
+            "You also have Discord server-management capabilities: "
+            "discord_send_message, discord_create_channel, discord_delete_channel, "
+            "discord_rename_channel, discord_delete_last_bot_message. These only "
+            "ever act inside the one Discord server the user has whitelisted — "
+            "there is no way to target any other server. Channels are targeted "
+            "by name; if a tool reports a channel doesn't exist, tell the user "
+            "plainly rather than guessing a different name. Deleting a channel "
+            "or a message cannot be undone, so only do it when the user is "
+            "clearly asking for that specific action — never as a guess."
         )
 
     def respond(self, user_text: str) -> str:
@@ -411,6 +516,20 @@ class Brain:
             )
         if name == "remember":
             return self._run_remember(tool_input.get("note", ""))
+        if name == "discord_send_message":
+            return self._run_discord(
+                "send_message", tool_input.get("channel_name", ""), tool_input.get("text", "")
+            )
+        if name == "discord_create_channel":
+            return self._run_discord("create_channel", tool_input.get("channel_name", ""))
+        if name == "discord_delete_channel":
+            return self._run_discord("delete_channel", tool_input.get("channel_name", ""))
+        if name == "discord_rename_channel":
+            return self._run_discord(
+                "rename_channel", tool_input.get("channel_name", ""), tool_input.get("new_name", "")
+            )
+        if name == "discord_delete_last_bot_message":
+            return self._run_discord("delete_last_bot_message", tool_input.get("channel_name", ""))
         return f"Unknown tool: {name}"
 
     def _run_open_item(self, target_phrase: str) -> str:
@@ -529,6 +648,27 @@ class Brain:
         except Exception as e:
             return f"Couldn't save that to memory: {e}"
         return f"Got it — I'll remember: {note}"
+
+    def _run_discord(self, action: str, *args) -> str:
+        # All five discord_* tools share identical shape (check the agent
+        # exists, emit running, call the matching DiscordAgent method, emit
+        # done/error) — one parameterized handler instead of five
+        # copy-pasted ones, dispatching by method name on self.discord_agent.
+        if not self.discord_agent:
+            return "Discord isn't connected — check discord_enabled and DISCORD_BOT_TOKEN."
+        desc = (action + " " + " ".join(str(a) for a in args if a)).strip()
+        task_id = self.state.start_task(f"discord: {desc}")
+        self._emit("discord_agent", "running", desc)
+        try:
+            result = getattr(self.discord_agent, action)(*args)
+            self.state.finish_task(task_id, result=result)
+            self._emit("discord_agent", "done", desc)
+            return result
+        except Exception as e:
+            error_text = f"Discord action crashed: {e}"
+            self.state.finish_task(task_id, error=error_text)
+            self._emit("discord_agent", "error", str(e))
+            return error_text
 
 
 def _validate_delay(delay_seconds) -> int:

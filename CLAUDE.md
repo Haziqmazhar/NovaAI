@@ -70,7 +70,7 @@ items, accumulated across the whole process lifetime for multi-turn memory) and 
 `tasks` dict for lifecycle tracking. `SessionState` itself is explicitly in-memory
 only, gone on restart — durable memory (below) is deliberately a separate, narrower
 mechanism rather than persisting that whole log. Seven tools are always exposed to the
-model, plus an eighth, conditional one:
+model, plus two more conditional groups (`remember`; five `discord_*` tools):
 - `open_item` → `actions.find_target`/`execute` directly.
 - `list_documents` → `subagents.list_documents`, which lists the readable files inside
   one (or all) of `config.json["folders"]`, so the model can discover filenames instead
@@ -145,6 +145,31 @@ model, plus an eighth, conditional one:
   wired up as a visible dashboard agent, since recalling memory isn't Nova
   delegating an external action the way the other tools are, it's closer to
   the silent short-term memory `SessionState.messages` already provides.
+- `discord_send_message`/`discord_create_channel`/`discord_delete_channel`/
+  `discord_rename_channel`/`discord_delete_last_bot_message` → `discord_agent.py`'s
+  `DiscordAgent`, Nova's third input/output channel (voice, dashboard, now Discord).
+  Two hard gates, both enforced in code rather than left to model judgment:
+  `discord_agent._is_authorized` checks the message author's ID against
+  `config["discord_owner_id"]` **before** the text ever reaches `Brain.respond` — a
+  DM or a message in `config["discord_guild_id"]` from anyone else is silently
+  ignored — and every management action resolves its target only inside that one
+  guild (`DiscordAgent._get_guild`), never anywhere else the bot might be added.
+  Only offered to the model when `config["discord_enabled"]` is true, same
+  conditional-tools pattern as `REMEMBER_TOOL`. Architecturally the one new pattern
+  here: `discord.py`'s bot runs its own asyncio event loop on a dedicated thread
+  (`DiscordAgent.run`, started from `main.py` the same way `voice_loop`/`text_loop`
+  are), but `Brain._run_discord`'s handlers can be called from a *different* thread
+  (whenever the command originated locally, not from Discord) — every
+  `DiscordAgent` management method bridges this via
+  `asyncio.run_coroutine_threadsafe(coro, self.client.loop).result(timeout=...)`
+  rather than assuming it's already on the bot's own loop. Deliberately excludes
+  kick/ban/role management — not just unwhitelisted, the tools don't exist — since
+  there's no way to delegate that to a separately-gated tool the way
+  `launch_coding_agent` does for coding, and the failure mode (removing a real
+  person) is worse than anything reversible like a deleted channel. The bot's own
+  Discord-granted permissions (see `README.md`) are real defense in depth here: if
+  the token itself ever leaked, `_is_authorized` wouldn't be what stops misuse —
+  only the permissions actually granted when the bot was invited would.
 
 `brain.py`'s `AGENTS` list — `(id, display_label, color)` tuples, e.g.
 `("brain","Nova","#b46bff")` — is the single source of truth for the characters the

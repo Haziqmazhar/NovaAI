@@ -41,5 +41,14 @@
   "memory_enabled": true,
 
   "_comment_memory_path": "Where Nova's memory file lives. Relative paths resolve inside the project folder; point this at a file inside your Obsidian vault (e.g. an absolute path ending in '...\\YourVault\\Nova\\memory.md') to keep memories there instead. Append-only - edit the file by hand anytime to correct or remove something.",
-  "memory_path": "memory.md"
+  "memory_path": "memory.md",
+
+  "_comment_discord_enabled": "If true (and DISCORD_BOT_TOKEN is set as an environment variable), Nova runs a Discord bot as a third input/output channel alongside voice and the dashboard. Off by default - requires setting up a bot in the Discord Developer Portal first, see README.",
+  "discord_enabled": false,
+
+  "_comment_discord_owner_id": "Your Discord user ID - the only account whose messages Nova ever treats as commands, checked in code before anything reaches GPT. Enable Developer Mode in Discord (Settings -> Advanced), then right-click your name -> Copy User ID.",
+  "discord_owner_id": "",
+
+  "_comment_discord_guild_id": "The one Discord server Nova is allowed to manage (create/rename/delete channels, send/delete messages). Right-click the server icon -> Copy Server ID. Nova will not act in any other server even if the bot is added to one.",
+  "discord_guild_id": ""
 }
