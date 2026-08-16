@@ -19,6 +19,7 @@
     --state-listening: #4aa3ff;
     --state-executing: #2ecc71;
     --state-error: #e74c3c;
+    --human: #cfd6e3;         /* the one role that isn't an agent — deliberately quiet, off the agent hue-wheel */
   }
   * { box-sizing: border-box; }
   html, body {
@@ -47,10 +48,21 @@
   }
   .nav-item.disabled { opacity: 0.4; }
   .nav-item.disabled .soon { font-size: 9px; margin-left: 6px; }
+  .nav-item[data-page] { cursor: pointer; }
+  .nav-item[data-page]:hover:not(.active) { color: var(--primary-fg); background: #20242e; }
 
   /* center: workspace stage (80%) + chat (20%), proportional so it holds
      the ratio across window resizes */
   .workspace-center { position: relative; display: flex; flex-direction: column; padding: 18px 22px; min-width: 0; }
+
+  /* two swappable pages inside the center column — left/right chrome
+     (nav, status/task sidebar) stays constant across both */
+  .page { display: none; flex-direction: column; flex: 1; min-height: 0; }
+  .page.active { display: flex; }
+  .coding-page-note {
+    text-align: center; font-size: 12px; color: var(--muted-fg); line-height: 1.5;
+    max-width: 380px; align-self: center; margin-top: 16px;
+  }
 
   .stage {
     flex: 8 1 0; min-height: 0; position: relative;
@@ -67,8 +79,10 @@
     background: rgba(255,255,255,0.015);
     transition: border-color 0.4s ease, box-shadow 0.4s ease;
   }
-  .room-brain, .room-app, .room-doc { width: 180px; height: 144px; flex: none; } /* height = 80% of width, same for every room */
-  .room-row { display: flex; gap: 22px; justify-content: center; }
+  .room-brain, .room-sub { width: 180px; height: 144px; flex: none; } /* height = 80% of width, same for every room */
+  /* wraps into a 2-column grid once there are more than 2 sub-agent rooms;
+     with exactly 2 it renders as a single row, same as before */
+  .room-row { display: flex; flex-wrap: wrap; gap: 22px; row-gap: 22px; justify-content: center; align-content: center; max-width: 400px; }
 
   /* robots: real inline SVG, positioned + scaled via CSS transform (not
      canvas) so motion is GPU-composited and can layer arc + overshoot +
@@ -149,6 +163,51 @@
   ::-webkit-scrollbar { width: 8px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #3a4152; border-radius: 4px; }
+
+  /* ---- team page: who each agent is, alongside the human operator ----
+     min-height: 0 is belt-and-suspenders on top of .page's own rule — this
+     is the one page whose content reliably exceeds the window, so it must
+     never depend on an inherited flex-shrink chain to get its scrollbar. */
+  .page-team { overflow-y: auto; overflow-x: hidden; min-height: 0; padding: 4px 6px 40px; gap: 12px; }
+  .team-intro { font-size: 12px; line-height: 1.6; color: var(--muted-fg); max-width: 70ch; margin: 2px 0 4px; }
+  .team-card {
+    background: var(--card-bg); border: 1px solid var(--card-border); border-left: 3px solid var(--tint);
+    border-radius: 12px; padding: 13px 16px;
+  }
+  .team-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .team-name-group { display: flex; align-items: center; gap: 9px; min-width: 0; }
+  .team-avatar {
+    width: 30px; height: 39px; flex: none;
+    filter: drop-shadow(0 0 3px color-mix(in srgb, var(--tint) 55%, transparent));
+  }
+  .team-avatar svg { width: 100%; height: 100%; display: block; }
+  .team-name { font-size: 15px; font-weight: 700; color: var(--tint); }
+  .team-tag {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px; white-space: nowrap;
+    border: 1px solid var(--card-border); border-radius: 999px; padding: 2px 9px; color: var(--tint);
+  }
+  .team-role { font-size: 12px; color: var(--muted-fg); margin: 6px 0 9px; }
+  .team-stats {
+    display: flex; gap: 18px; flex-wrap: wrap; font-size: 11px;
+    padding: 8px 0; margin-bottom: 4px; border-top: 1px solid var(--card-border); border-bottom: 1px solid var(--card-border);
+  }
+  .team-stats .stat-label {
+    display: block; font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--title-fg); margin-bottom: 2px;
+  }
+  /* description is collapsed by default (native <details>) so the roster's
+     scannable facts — name, role, stats — fit without every card's full
+     paragraph competing for the same vertical space */
+  .team-details summary {
+    cursor: pointer; list-style: none; display: flex; align-items: center; gap: 5px;
+    font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--tint); padding: 8px 0 0; user-select: none;
+  }
+  .team-details summary::-webkit-details-marker { display: none; }
+  .team-details summary::before { content: "▸"; display: inline-block; font-size: 9px; transition: transform 0.15s ease; }
+  .team-details[open] summary::before { transform: rotate(90deg); }
+  .team-desc { font-size: 12px; line-height: 1.55; color: var(--muted-fg); margin-top: 8px; }
+  .team-desc code { background: var(--entry-bg); color: var(--primary-fg); border-radius: 4px; padding: 1px 5px; font-size: 11px; }
 </style>
 </head>
 <body>
@@ -156,32 +215,49 @@
     <nav class="sidebar-left">
       <div class="brand" id="brand-name">NOVA</div>
       <div class="brand-sub">agent dashboard</div>
-      <div class="nav-item active">Workspace</div>
+      <div class="nav-item active" data-page="workspace">Workspace</div>
+      <div class="nav-item" data-page="coding">Coding Agent</div>
+      <div class="nav-item" data-page="team">Team</div>
       <div class="nav-item disabled">History <span class="soon">soon</span></div>
       <div class="nav-item disabled">Settings <span class="soon">soon</span></div>
     </nav>
 
     <main class="workspace-center">
-      <div class="stage" id="stage">
-        <svg class="grid-backdrop" id="grid-backdrop">
-          <circle class="grid-ring" id="ring-outer" r="0"></circle>
-          <circle class="grid-ring" id="ring-inner" r="0"></circle>
-        </svg>
-        <svg class="connector-layer" id="connector-layer">
-          <line id="line-app_agent"></line>
-          <line id="line-document_agent"></line>
-        </svg>
-        <div class="room room-brain" id="room-brain"></div>
-        <div class="room-row">
-          <div class="room room-app" id="room-app_agent"></div>
-          <div class="room room-doc" id="room-document_agent"></div>
+      <div class="page page-workspace active" id="page-workspace">
+        <div class="stage" id="stage">
+          <svg class="grid-backdrop" id="grid-backdrop">
+            <circle class="grid-ring" id="ring-outer" r="0"></circle>
+            <circle class="grid-ring" id="ring-inner" r="0"></circle>
+          </svg>
+          <svg class="connector-layer" id="connector-layer"></svg>
+          <div class="room room-brain" id="room-brain"></div>
+          <div class="room-row" id="room-row"></div>
+          <div id="robot-layer"></div>
         </div>
-        <div id="robot-layer"></div>
+        <div id="chat-log"></div>
+        <div class="floating-bar">
+          <input id="cmd-input" type="text" placeholder="Ask Nova or type a command...">
+          <button id="send-btn" title="Send">➤</button>
+        </div>
       </div>
-      <div id="chat-log"></div>
-      <div class="floating-bar">
-        <input id="cmd-input" type="text" placeholder="Ask Nova or type a command...">
-        <button id="send-btn" title="Send">➤</button>
+
+      <div class="page page-coding" id="page-coding">
+        <div class="stage" id="coding-stage">
+          <div class="room room-brain" id="room-coding_agent"></div>
+          <div id="coding-robot-layer"></div>
+        </div>
+        <div class="coding-page-note">
+          Cody launches Claude Code in its own window, scoped to one pre-approved repo.
+          Nova only starts that session — it can't see or control what happens inside it.
+        </div>
+      </div>
+
+      <div class="page page-team" id="page-team">
+        <div class="team-intro">
+          Nova isn't one model — it's an orchestrator, a handful of narrowly-scoped
+          sub-agents, and the human who decides what any of them are allowed to touch.
+        </div>
+        <div id="team-cards" style="display:flex; flex-direction:column; gap:12px;"></div>
       </div>
     </main>
 
@@ -196,7 +272,7 @@
   </div>
 
 <script>
-  const ROLE_COLOR = { brain: "#b46bff", app_agent: "#4aa3ff", document_agent: "#3ddc84" };
+  const ROLE_COLOR = {};    // agent_id -> color, populated by initAgents from Python's AGENTS list
 
   const agentLabel = {};   // agent_id -> display label
   const agentAnim = {};    // agent_id -> {offsetX, offsetY, tilt, scale, busy, travelling, hoverPhase}
@@ -244,27 +320,186 @@
     </svg>`;
   }
 
+  // ---- same stroke-only line-art language as robotSVG, for the one
+  // teammate who isn't an agent — a plain badge silhouette, no antenna/eyes ----
+  function humanAvatarSVG(color) {
+    return `
+    <svg viewBox="0 0 100 130" overflow="visible">
+      <g fill="none" stroke="${color}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="50" cy="34" r="20"/>
+        <path d="M14 122 C14 88 86 88 86 122"/>
+      </g>
+    </svg>`;
+  }
+
+  // ---- team page content: role/model/description per agent id, kept
+  // separate from AGENTS (brain.py's id/label/color source of truth) since
+  // this is presentation copy, not routing data. A new agent id with no
+  // entry here still gets a card — just without the descriptive fields —
+  // so brain.py's AGENTS list stays the only thing that has to change to
+  // add a new agent everywhere else. ----
+  const TEAM_INFO = {
+    brain: {
+      tag: "Orchestrator", role: "Reasoning Layer & Router",
+      model: "gpt-5-mini (Responses API)", active: "Per command, ≤5 tool hops",
+      mode: "Conversational + tool routing",
+      desc: "The only agent the user actually talks to. Hears the wake word or reads " +
+        "typed input, decides what needs to happen, and calls one of its tools to make " +
+        "it happen — never touches the filesystem or OS directly. Falls back to " +
+        "offline pattern matching automatically if no API key is set or a call fails.",
+    },
+    app_agent: {
+      tag: "Sub-agent", role: "Whitelist Executor",
+      model: "None — deterministic Python", active: "Sub-second, on demand",
+      mode: "Direct OS launch",
+      desc: "The only agent that actually touches the operating system. Given a name " +
+        "Nova has already resolved, fuzzy-matches it against <code>config.json</code>'s " +
+        "apps/folders and opens it, or reports failure. No model, no judgment call — " +
+        "it can't open anything outside the whitelist.",
+    },
+    document_agent: {
+      tag: "Sub-agent", role: "Document & Download Specialist",
+      model: "gpt-5-mini (tool-less)", active: "Per read / list / download",
+      mode: "Sandboxed read + write",
+      desc: "Reads and reasons about files in pre-approved folders, and is the " +
+        "project's primary write path for downloads. Every read is guarded against " +
+        "path traversal; every download is size-capped, extension-filtered, and never " +
+        "overwrites an existing file.",
+    },
+    reminder_agent: {
+      tag: "Sub-agent", role: "Reminder Scheduler",
+      model: "None", active: "Fires once, ≤7 days out",
+      mode: "Background timer thread",
+      desc: "The simplest agent on the roster. Nova computes the delay; Remy just holds " +
+        "the clock via a daemon <code>threading.Timer</code> and hands the message back " +
+        "when it fires. Nothing persists across a restart.",
+    },
+    lookup_agent: {
+      tag: "Sub-agent", role: "Web Lookup",
+      model: "OpenAI hosted web_search", active: "Real-time, on demand",
+      mode: "Hosted tool call",
+      desc: "Looks things up on the open web when a question needs current information " +
+        "Nova doesn't already know. OpenAI runs the search inside Nova's own model call, " +
+        "so Scout's activity is reported after the fact rather than invoked directly.",
+    },
+    coding_agent: {
+      tag: "Sub-agent", role: "Coding Agent Launcher",
+      model: "Claude Code CLI", active: "On demand, then independent",
+      mode: "Process launch, new console",
+      desc: "Nova's outermost delegation: opens a fully separate, independently " +
+        "reasoning coding agent with full read/write access to one pre-approved repo. " +
+        "Nova's involvement ends the moment the window opens.",
+    },
+  };
+
+  const HUMAN_COLOR = "#cfd6e3"; // == --human in :root, kept literal so it can be used as an SVG stroke value too
+
+  const HUMAN_CARD = {
+    id: "human", label: "Haziq Mazhar", color: HUMAN_COLOR,
+    tag: "Operator", role: "Architect, Product Owner & Security Reviewer",
+    model: "— (human judgment)", active: "Ongoing, async", mode: "Direct repo access",
+    desc: "Every capability on this page exists because Haziq decided it should, and " +
+      "drew the line around it. Nova's core rule — it can never add to its own " +
+      "whitelist — is enforced by keeping this role outside the agent loop entirely: " +
+      "only a human picks an app from <code>discovery.py</code>'s findings and writes " +
+      "it into <code>config.json</code>.",
+  };
+
+  function makeTeamCard(opts) {
+    const card = document.createElement("div");
+    card.className = "team-card";
+    card.style.setProperty("--tint", opts.color);
+    const avatar = opts.id === "human" ? humanAvatarSVG(opts.color) : robotSVG(opts.color, "team-" + opts.id);
+    card.innerHTML = `
+      <div class="team-top">
+        <div class="team-name-group">
+          <div class="team-avatar">${avatar}</div>
+          <span class="team-name">${opts.label}</span>
+        </div>
+        <span class="team-tag">${opts.tag || "Agent"}</span>
+      </div>
+      <div class="team-role">${opts.role || ""}</div>
+      <div class="team-stats">
+        <div><span class="stat-label">Model</span>${opts.model || "—"}</div>
+        <div><span class="stat-label">Active</span>${opts.active || "—"}</div>
+        <div><span class="stat-label">Mode</span>${opts.mode || "—"}</div>
+      </div>
+      <details class="team-details">
+        <summary>Details</summary>
+        <div class="team-desc">${opts.desc || ""}</div>
+      </details>`;
+    return card;
+  }
+
+  function buildTeamPage(agentsList) {
+    const host = document.getElementById("team-cards");
+    if (!host) return;
+    host.innerHTML = "";
+    host.appendChild(makeTeamCard(HUMAN_CARD));
+    for (const [id, label, color] of agentsList) {
+      const info = TEAM_INFO[id] || {};
+      host.appendChild(makeTeamCard(Object.assign({ id, label, color }, info)));
+    }
+  }
+
+  // Agents rendered here get their own page instead of a room in the
+  // shared workspace tree — currently just Cody, since a coding-agent
+  // session isn't part of Nova's own delegate-and-report flow the way
+  // the others are. Add an id here to give any future agent the same
+  // treatment.
+  const STANDALONE_PAGE_AGENTS = new Set(["coding_agent"]);
+
   function initAgents(agentsList) {
     const layer = document.getElementById("robot-layer");
+    const roomRow = document.getElementById("room-row");
+    const connectorLayer = document.getElementById("connector-layer");
+    const codingLayer = document.getElementById("coding-robot-layer");
     layer.innerHTML = "";
-    for (const [id, label] of agentsList) {
-      const color = ROLE_COLOR[id] || "#8a2be2";
+    roomRow.innerHTML = "";
+    connectorLayer.innerHTML = "";
+    codingLayer.innerHTML = "";
+
+    for (const [id, label, color] of agentsList) {
+      ROLE_COLOR[id] = color;
       agentLabel[id] = label;
       agentAnim[id] = {
         offsetX: 0, offsetY: 0, tilt: 0, scale: 1, busy: false, travelling: false,
         hoverPhase: Math.random() * 10,
       };
 
-      setRoomGlow(id, 0); // idle: agent color at low intensity, no glow
-
       const wrap = document.createElement("div");
       wrap.className = "robot";
       wrap.id = "robot-" + id;
       wrap.innerHTML = robotSVG(color, id) +
         `<div class="robot-name" style="color:${color}">${label}</div>`;
-      layer.appendChild(wrap);
+
+      if (STANDALONE_PAGE_AGENTS.has(id)) {
+        // its room (e.g. #room-coding_agent) is static HTML on its own
+        // page, the same way #room-brain is the fixed root of the
+        // workspace stage — no room-row slot, no connector line.
+        codingLayer.appendChild(wrap);
+      } else {
+        // "brain" is the fixed root room, already in the static HTML —
+        // every other workspace agent gets its room + connector line
+        // built dynamically, so adding one to Python's AGENTS list is
+        // all it takes.
+        if (id !== "brain") {
+          const room = document.createElement("div");
+          room.className = "room room-sub";
+          room.id = "room-" + id;
+          roomRow.appendChild(room);
+
+          const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          line.id = "line-" + id;
+          connectorLayer.appendChild(line);
+        }
+        layer.appendChild(wrap);
+      }
+
+      setRoomGlow(id, 0); // idle: agent color at low intensity, no glow
     }
-    requestAnimationFrame(() => { refreshStageLayout(); });
+    buildTeamPage(agentsList);
+    requestAnimationFrame(() => { refreshStageLayout(); refreshCodingLayout(); });
   }
 
   function refreshStageLayout() {
@@ -272,6 +507,7 @@
     const stageRect = stage.getBoundingClientRect();
 
     for (const id of Object.keys(agentAnim)) {
+      if (STANDALONE_PAGE_AGENTS.has(id)) continue; // lives on its own stage, see refreshCodingLayout
       const room = document.getElementById("room-" + id);
       const robotEl = document.getElementById("robot-" + id);
       if (!room || !robotEl) continue;
@@ -294,7 +530,8 @@
       const br = brainRoom.getBoundingClientRect();
       const bx = br.left - stageRect.left + br.width / 2;
       const by = br.top - stageRect.top + br.height;
-      for (const subId of ["app_agent", "document_agent"]) {
+      for (const subId of Object.keys(agentAnim)) {
+        if (subId === "brain" || STANDALONE_PAGE_AGENTS.has(subId)) continue;
         const room = document.getElementById("room-" + subId);
         const line = document.getElementById("line-" + subId);
         if (!room || !line) continue;
@@ -314,7 +551,44 @@
     outer.setAttribute("cx", cx); outer.setAttribute("cy", cy); outer.setAttribute("r", maxR * 0.92);
     inner.setAttribute("cx", cx); inner.setAttribute("cy", cy); inner.setAttribute("r", maxR * 0.6);
   }
-  window.addEventListener("resize", refreshStageLayout);
+
+  // Standalone-page agents (Cody) sit on their own mini-stage, positioned
+  // the same way as refreshStageLayout but relative to #coding-stage — kept
+  // separate rather than generalizing further since there's exactly one
+  // dedicated page today.
+  function refreshCodingLayout() {
+    const stage = document.getElementById("coding-stage");
+    if (!stage) return;
+    const stageRect = stage.getBoundingClientRect();
+    for (const id of STANDALONE_PAGE_AGENTS) {
+      const room = document.getElementById("room-" + id);
+      const robotEl = document.getElementById("robot-" + id);
+      if (!room || !robotEl || !agentAnim[id]) continue;
+      const r = room.getBoundingClientRect();
+      const cx = r.left - stageRect.left + r.width / 2;
+      const cy = r.top - stageRect.top + r.height / 2;
+      roomCenters[id] = [cx, cy];
+      robotEl.style.left = cx + "px";
+      robotEl.style.top = cy + "px";
+      const naturalH = 112, labelH = 16;
+      const targetH = Math.max(24, r.height - labelH) * 0.82;
+      agentAnim[id].scale = Math.max(0.35, Math.min(1.2, targetH / naturalH));
+    }
+  }
+  window.addEventListener("resize", () => { refreshStageLayout(); refreshCodingLayout(); });
+
+  // ---- page switching: left nav swaps which page is visible in the
+  // center column; status/task sidebar on the right stays constant ----
+  document.querySelectorAll(".nav-item[data-page]").forEach((navEl) => {
+    navEl.addEventListener("click", () => {
+      const target = navEl.dataset.page;
+      document.querySelectorAll(".nav-item[data-page]").forEach((n) => n.classList.toggle("active", n === navEl));
+      document.querySelectorAll(".page").forEach((p) => p.classList.toggle("active", p.id === "page-" + target));
+      // layout math needs real (non-zero) getBoundingClientRect() sizes,
+      // which only exist once a page is actually visible.
+      requestAnimationFrame(() => { refreshStageLayout(); refreshCodingLayout(); });
+    });
+  });
 
   function setHeader(agentName, brainMode) {
     document.getElementById("brand-name").textContent = agentName.toUpperCase();
@@ -448,7 +722,9 @@
       anim.busy = true;
       setRoomGlow(id, 1);
       if (id !== "brain") {
-        startTravel(id);
+        // travel-to-brain-and-back only makes sense inside the shared
+        // workspace tree; standalone-page agents (Cody) just glow in place.
+        if (!STANDALONE_PAGE_AGENTS.has(id)) startTravel(id);
         addTaskCard(id, detail);
         appendLog(`${agentLabel[id]}: ${detail}...`);
       }

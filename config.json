@@ -21,7 +21,8 @@
     "calculator": "calc.exe",
     "explorer": "explorer.exe",
     "spotify": "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Spotify\\Spotify.exe",
-    "vscode": "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe"
+    "vscode": "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+    "steam": "C:\\Program Files (x86)\\Steam\\Steam.exe"
   },
 
   "_comment_folders": "Add any folder you want Nova to be allowed to open in File Explorer.",
@@ -29,5 +30,16 @@
     "downloads": "C:\\Users\\%USERNAME%\\Downloads",
     "documents": "C:\\Users\\%USERNAME%\\Documents",
     "desktop": "C:\\Users\\%USERNAME%\\OneDrive\\Desktop"
-  }
+  },
+
+  "_comment_repos": "Repos Nova can open Claude Code in. key = the word you'll say, value = the repo's root folder. This is Nova's most powerful capability by far - the launched session has full read/write access to whatever's in that folder, so only add repos you're comfortable with an AI coding agent having full access to.",
+  "repos": {
+    "nova": "C:\\Users\\Amir\\Downloads\\nova_agent\\nova_agent"
+  },
+
+  "_comment_memory_enabled": "If true, Nova can save short notes about you (preferences, facts) and recall them in future sessions - its only write capability besides download_file. Off by default so this is an explicit opt-in, same as voice_enabled/tts_enabled.",
+  "memory_enabled": true,
+
+  "_comment_memory_path": "Where Nova's memory file lives. Relative paths resolve inside the project folder; point this at a file inside your Obsidian vault (e.g. an absolute path ending in '...\\YourVault\\Nova\\memory.md') to keep memories there instead. Append-only - edit the file by hand anytime to correct or remove something.",
+  "memory_path": "memory.md"
 }

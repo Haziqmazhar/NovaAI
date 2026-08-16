@@ -35,7 +35,7 @@ class TranscriptWindow:
                  agents=None, brain_mode: str = ""):
         self._input_queue = queue.Queue()
         self._on_quit = on_quit
-        self._agents = agents or [("brain", "Brain")]
+        self._agents = agents or [("brain", "Brain", "#b46bff")]
         self._agent_name = agent_name
         self._brain_mode = brain_mode
         self._text_input = text_input

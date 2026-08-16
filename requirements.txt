@@ -13,8 +13,11 @@ Pillow>=11.0
 # matching if OPENAI_API_KEY isn't set)
 openai>=1.50.0
 
-# PDF text extraction for the document sub-agent (read_document tool)
+# PDF/Word/Excel text extraction for the document sub-agent (read_document,
+# list_documents tools)
 pypdf>=5.0.0
+python-docx>=1.1.0
+openpyxl>=3.1.0
 
 # Dashboard: local HTML/CSS/JS rendered in a native window (no browser
 # chrome) via the Edge WebView2 control. Needs the WebView2 Runtime,

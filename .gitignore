@@ -11,3 +11,8 @@ model/
 # Never commit secrets.
 .env
 *.key
+
+# Nova's own generated memory file (default path, config.json's
+# memory_path) — runtime data with real personal notes, not source.
+memory.md
+config.json.bak

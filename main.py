@@ -10,10 +10,10 @@ How it works, in plain terms:
      commands from the transcript window — no wake word needed there,
      since typing is already an explicit action.
   2. If an OPENAI_API_KEY is set, the command goes to GPT (brain.py),
-     which can chat normally and has two tools — open_item and
-     read_document — wired straight into the same whitelist gate as
-     before. Without a key, Nova falls back to the original "open X"
-     pattern match, so it still works fully offline.
+     which can chat normally and has several tools (open_item,
+     read_document, and more — see brain.py's TOOLS) wired straight into
+     the same whitelist gate as before. Without a key, Nova falls back to
+     the original "open X" pattern match, so it still works fully offline.
   3. A transcript window shows what Nova heard/read and said; the tray
      icon keeps showing idle/listening/executing at a glance.
 
@@ -29,6 +29,7 @@ import threading
 
 from actions import execute, find_target
 from brain import AGENTS, Brain
+from discovery import find_installed_app
 from tray import StatusTray
 from transcript_window import TranscriptWindow
 from tts import Voice
@@ -162,7 +163,16 @@ def handle_command_offline(command_text: str, config: dict, voice: Voice,
         if not name:
             tray.set_state("error", f"unknown: {target_phrase}")
             window.set_state("error", f"unknown: {target_phrase}")
-            reply = f"I don't have '{target_phrase}' set up. Add it to config.json first."
+            found = find_installed_app(config, target_phrase)
+            if found:
+                reply = (
+                    f"'{target_phrase}' isn't set up yet, but I found "
+                    f"'{found['name']}' installed at {found['path']}. Run "
+                    f"'python discover_apps.py' to add it, or add it to "
+                    f"config.json yourself."
+                )
+            else:
+                reply = f"I don't have '{target_phrase}' set up. Add it to config.json first."
             voice.say(reply)
             window.log_line(f"Nova: {reply}")
             return
@@ -211,6 +221,13 @@ def main():
         brain_mode=brain_mode,
     )
     brain.on_agent_event = window.handle_agent_event
+
+    def deliver_reminder(message: str):
+        reply = f"Reminder: {message}"
+        voice.say(reply)  # already prints regardless of tts_enabled
+        window.log_line(f"Nova: {reply}")
+
+    brain.on_reminder = deliver_reminder
 
     tray = StatusTray(on_quit=lambda: (should_quit.set(), window.request_quit()))
     tray.run_in_background()

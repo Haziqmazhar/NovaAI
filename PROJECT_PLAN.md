@@ -106,6 +106,7 @@ Wake word, offline STT/TTS, whitelist-only app/folder opening, tray status. *(Th
 | Future LLM phase leaks data or over-acts | Low (not yet built) | High | Explicit gate design required before Phase 2 ships (see above) |
 | Screen-control phase causes unintended clicks | Low (not yet built) | High | Deferred to Phase 3, evaluate existing hardened tools first |
 | Dependency install friction (mic drivers, build tools) | Medium | Low | README documents the known Windows/Python C++ build tools issue |
+| `download_file` (first write capability, added post-Phase-3) fetches something malicious or oversized | Low | Medium | http/https-only, executable/script extension denylist, 50MB cap enforced during streaming (not just trusted headers), sanitized filenames, writes confined to an already-whitelisted folder, never overwrites an existing file — see `CLAUDE.md`'s Architecture section for the full breakdown |
 
 ## 7. Immediate Next Steps (for you)
 

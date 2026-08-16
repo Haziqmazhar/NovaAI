@@ -67,21 +67,95 @@ based on `brain.enabled`:
 **Orchestrator + sub-agent pattern** (`brain.py` + `subagents.py` + `session_state.py`):
 `Brain` holds a `SessionState` — a persisted `messages` list (the Responses API `input`
 items, accumulated across the whole process lifetime for multi-turn memory) and a
-`tasks` dict for lifecycle tracking. Two tools are exposed to the model:
+`tasks` dict for lifecycle tracking. `SessionState` itself is explicitly in-memory
+only, gone on restart — durable memory (below) is deliberately a separate, narrower
+mechanism rather than persisting that whole log. Seven tools are always exposed to the
+model, plus an eighth, conditional one:
 - `open_item` → `actions.find_target`/`execute` directly.
-- `read_document` → `subagents.run_document_agent`, which resolves the target file
-  against `config.json["folders"]` (with an explicit path-traversal guard — realpath
-  + commonpath check, so `..`/symlink tricks can't escape the whitelisted folder),
-  extracts text (`.txt`/`.md` directly, `.pdf` via `pypdf`, capped at `MAX_CHARS`),
-  then runs a **second, separate, tool-less** GPT call scoped only to that file's
-  content — a sub-agent with zero system access of its own.
+- `list_documents` → `subagents.list_documents`, which lists the readable files inside
+  one (or all) of `config.json["folders"]`, so the model can discover filenames instead
+  of requiring the user to already know them.
+- `read_document` → `subagents.run_document_agent`, which resolves each target file
+  (up to `MAX_FILES_PER_CALL`) against `config.json["folders"]` (with an explicit
+  path-traversal guard — realpath + commonpath check, so `..`/symlink tricks can't
+  escape the whitelisted folder), extracts text (`.txt`/`.md` directly, `.pdf` via
+  `pypdf`, `.docx` via `python-docx`, `.csv` via stdlib `csv`, `.xlsx` via `openpyxl`,
+  each file capped at a share of `MAX_CHARS`), then runs a **second, separate,
+  tool-less** GPT call scoped only to that content — a sub-agent with zero system
+  access of its own. Multiple files are concatenated with `=== filename ===` section
+  headers in one call, so instructions can compare/cross-reference them.
+- `download_file` → `subagents.download_file`, the project's **only write path** — it's
+  deliberately more locked down than the read-only tools: only `http`/`https` URLs
+  (rejects `file://`, `ftp://`, etc.), a `BLOCKED_DOWNLOAD_EXTENSIONS` denylist for
+  executables/scripts (`.exe`/`.bat`/`.ps1`/`.dll`/etc.), a `MAX_DOWNLOAD_BYTES` (50MB)
+  cap enforced both from `Content-Length` and while streaming (so a lying/missing header
+  can't bypass it), a filename sanitizer (`_safe_filename`) that strips path separators
+  and invalid characters so a crafted name can't escape the folder or collide with `..`,
+  and `_unique_path` which always appends `(1)`, `(2)`, etc. rather than overwriting an
+  existing file. Streams to a `.part` file and only `os.replace`s it into place on
+  success, so a failed/oversized download never leaves a corrupt or half-written file
+  under its real name.
+- `launch_coding_agent` → `coding_agent.launch_coding_agent`, which resolves a repo from
+  `config.json["repos"]` (same substring-match style as the other whitelist lookups) and
+  launches the **Claude Code CLI** in a brand-new, visible console window via
+  `subprocess.Popen([comspec, "/c", claude_path], cwd=root,
+  creationflags=subprocess.CREATE_NEW_CONSOLE)` — never `shell=True`, and `repo_name` is
+  only ever used as a dict-key lookup, never concatenated into a command string, so
+  there's no injection surface. This is deliberately the same shape as `open_item`:
+  Nova is only ever "launching a pre-approved thing," never gaining file access itself.
+  What makes it different is what it launches — Claude Code has full read/write access
+  to whatever repo it's pointed at, gated entirely by *its own* permission system, not
+  Nova's. This is why `config["repos"]` is its own whitelist category rather than reusing
+  `folders`: adding a repo here is a materially bigger trust decision than adding a
+  folder Nova can merely read files from. No task-seeding in this version — passing
+  dynamic text into a `.cmd`-based CLI launch via `cmd /c` risks cmd.exe's own
+  metacharacter handling (`%`/`&`/`|`/`^`), so the session opens empty and the user
+  types into it directly; a headless/report-back version (likely via the Claude Agent
+  SDK rather than shelling out) is deferred, tracked as a possible v2.
+- `set_reminder` → handled inline in `Brain` (no sub-agent GPT call needed): the model
+  computes `delay_seconds` itself using the current local time injected into the system
+  prompt each turn (`Brain._build_system_prompt`, rebuilt per `respond()` call rather
+  than cached, so a long-running session doesn't reason from a stale clock), then
+  `Brain._run_set_reminder` starts a daemon `threading.Timer` and returns immediately.
+  Delivery happens later, out-of-band from any GPT turn, via `Brain.on_reminder` — a
+  callback `main.py` wires to `voice.say`/`window.log_line`, the same pattern as
+  `on_agent_event`. In-memory only; lost if Nova restarts before it fires.
+- `web_search` → OpenAI's **hosted** tool (`{"type": "web_search"}` in `TOOLS`), not a
+  custom function — OpenAI runs the search itself inside the same `responses.create()`
+  call, so `Brain` never "invokes" it the way it invokes the function tools above. It's
+  reported to the dashboard after the fact: `Brain._emit_web_search_events` scans
+  `response.output` for `web_search_call` items post-call and emits the `lookup_agent`
+  running/done pair retroactively. This tool sits outside the whitelist gate by
+  design — it never touches the local filesystem or apps, only outbound web
+  lookups via OpenAI, so the gate's purpose doesn't apply to it.
+- `remember` → `memory.py`, the codebase's other write path alongside
+  `subagents.download_file`, and narrower still: it always writes to the single
+  exact path in `config.json["memory_path"]` — the model never supplies a
+  filename, so (unlike `read_document`) there's no traversal surface to guard
+  against — and every write is **append-only** (`memory.append_memory` only ever
+  opens in `"a"` mode), so a bad tool call can add a stray note but can never
+  edit or delete one already saved. Only offered to the model at all when
+  `config["memory_enabled"]` is true (`Brain.__init__` builds `self.tools` from
+  the base `TOOLS` list plus `REMEMBER_TOOL` conditionally) — off by default,
+  same explicit-opt-in treatment as `voice_enabled`/`tts_enabled`. There's no
+  `recall`/search tool: `Brain._build_system_prompt` just folds
+  `memory.read_memory()`'s content (capped at `MAX_MEMORY_CHARS`, keeping the
+  most recent entries) straight into the system prompt every turn, the same
+  way `_describe_whitelist` already does for apps/folders — deliberately not
+  wired up as a visible dashboard agent, since recalling memory isn't Nova
+  delegating an external action the way the other tools are, it's closer to
+  the silent short-term memory `SessionState.messages` already provides.
 
-`brain.py`'s `AGENTS` list (`[("brain","Nova"), ("app_agent","Appy"), ("document_agent","Duc")]`)
-is the single source of truth for the 3 characters the dashboard draws, passed into
-`TranscriptWindow` so the UI layer never imports `brain.py`. The only coupling between
-orchestrator and UI is `Brain.on_agent_event(event)`, a callback `main.py` wires to
-`window.handle_agent_event` — every `thinking`/`running`/`done`/`error` transition
-flows through it.
+`brain.py`'s `AGENTS` list — `(id, display_label, color)` tuples, e.g.
+`("brain","Nova","#b46bff")` — is the single source of truth for the characters the
+dashboard draws, passed into `TranscriptWindow` so the UI layer never imports
+`brain.py`. `dashboard.html`'s `initAgents()` builds every non-brain agent's room div
+and connector line dynamically from this list (only `room-brain` is static HTML,
+being the fixed root), so adding another agent (e.g. `coding_agent`/Cody) is a one-line
+Python change with no HTML/JS edits required. The only coupling between orchestrator
+and UI is
+`Brain.on_agent_event(event)`, a callback `main.py` wires to `window.handle_agent_event`
+— every `thinking`/`running`/`done`/`error` transition flows through it.
 
 **The dashboard is pywebview + one self-contained HTML file, not tkinter** (an earlier
 tkinter/customtkinter version was fully replaced this project). `transcript_window.py`
@@ -110,3 +184,12 @@ GUI event loops must own their creating thread.
   chain installed or working.
 - `tts_enabled` — off: `tts.py::Voice` never initializes the pyttsx3 engine; replies
   still print/log normally, Nova just stays silent.
+
+**Whitelist population is deliberately out-of-band from the agent.** `discovery.py`
+(`_app_paths_from_registry` via stdlib `winreg`, `_start_menu_shortcuts` via one
+batched PowerShell `WScript.Shell` call to resolve `.lnk` targets) and
+`discover_apps.py` (the interactive CLI built on it) exist purely to make
+`config.json` faster to populate by hand — neither `brain.py` nor `actions.py`
+imports `discovery.py`, so nothing this module finds is reachable by Nova/GPT until
+a human runs the script and explicitly picks entries into `config.json`. This keeps
+`actions.py`'s stated invariant true: "Nova can't add to its own whitelist."
